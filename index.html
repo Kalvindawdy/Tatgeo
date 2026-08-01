@@ -1,0 +1,1511 @@
+<title>Tatgeo — Geometric Tattoo Studio</title>
+
+<style>
+/* ============================== TOKENS ============================== */
+:root{
+  --paper:#F4F3F6;      /* the drawing sheet */
+  --chrome:#E2DFE7;     /* surrounding studio surface */
+  --panel:#EDEBF1;
+  --sunk:#D8D4DF;
+  --ink:#16151C;
+  --ink-2:#4C4859;
+  --ink-3:#84808F;
+  --line:#C6C1D0;
+  --hair:#B7B2C2;
+  --accent:#5B44C9;
+  --accent-ink:#FFFFFF;
+  --accent-soft:#E4DEFB;
+  --danger:#B03325;
+  --shadow:rgba(22,21,28,.14);
+
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  --r:2px;
+  --tap:44px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:#0F0E13; --chrome:#17161D; --panel:#1C1A23; --sunk:#131219;
+    --ink:#EDEBF3; --ink-2:#A9A4B6; --ink-3:#6C6779;
+    --line:#2E2B37; --hair:#3A3644;
+    --accent:#9C86FF; --accent-ink:#14121C; --accent-soft:#241E3D;
+    --danger:#FF8A7A;
+    --shadow:rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0F0E13; --chrome:#17161D; --panel:#1C1A23; --sunk:#131219;
+  --ink:#EDEBF3; --ink-2:#A9A4B6; --ink-3:#6C6779;
+  --line:#2E2B37; --hair:#3A3644;
+  --accent:#9C86FF; --accent-ink:#14121C; --accent-soft:#241E3D;
+  --danger:#FF8A7A;
+  --shadow:rgba(0,0,0,.5);
+}
+:root[data-theme="light"]{
+  --paper:#F4F3F6; --chrome:#E2DFE7; --panel:#EDEBF1; --sunk:#D8D4DF;
+  --ink:#16151C; --ink-2:#4C4859; --ink-3:#84808F;
+  --line:#C6C1D0; --hair:#B7B2C2;
+  --accent:#5B44C9; --accent-ink:#FFFFFF; --accent-soft:#E4DEFB;
+  --danger:#B03325;
+  --shadow:rgba(22,21,28,.14);
+}
+
+/* ============================== BASE ============================== */
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:var(--chrome);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+  overscroll-behavior:none;
+}
+button{ font:inherit; color:inherit; background:none; border:none; padding:0; cursor:pointer; }
+:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+.mono{ font-family:var(--mono); }
+.eyebrow{
+  font-family:var(--mono); font-size:10px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ink-3);
+}
+
+/* ============================== SHELL ============================== */
+#app{
+  height:100dvh;
+  display:grid;
+  grid-template-rows:auto 1fr auto;
+  grid-template-columns:100%;
+}
+
+/* ------------------------------ topbar ------------------------------ */
+.topbar{
+  display:flex; align-items:center; gap:8px;
+  padding:0 10px; height:52px;
+  border-bottom:1px solid var(--line);
+  background:var(--chrome);
+}
+.wordmark{ display:flex; flex-direction:column; gap:1px; flex:none; }
+.wordmark b{
+  font-family:var(--mono); font-weight:700; font-size:15px;
+  letter-spacing:.24em; text-transform:uppercase; line-height:1;
+  white-space:nowrap;
+}
+.wordmark span{ font-size:9px; letter-spacing:.14em; white-space:nowrap; }
+.readout{
+  flex:0 1 auto; min-width:0; margin-left:auto;
+  display:flex; align-items:center; justify-content:center; gap:7px;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--ink-2);
+  border:1px solid var(--line); border-radius:var(--r);
+  padding:5px 8px;
+}
+.readout span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.readout i{ width:6px; height:6px; background:var(--hair); display:block; flex:none; }
+@media (max-width:359px){ .wordmark span{ display:none; } }
+.readout.on i{ background:var(--accent); }
+.iconbtn{
+  width:36px; height:36px; flex:none;
+  display:grid; place-items:center;
+  border:1px solid var(--line); border-radius:var(--r);
+  background:var(--panel);
+}
+.iconbtn:disabled{ opacity:.38; cursor:default; }
+.iconbtn:active:not(:disabled){ background:var(--sunk); }
+.iconbtn svg{ width:17px; height:17px; }
+
+/* ------------------------------ stage ------------------------------ */
+.stage{
+  position:relative; overflow:hidden;
+  background:var(--paper);
+  min-height:0;
+}
+#view{ display:block; width:100%; height:100%; touch-action:none; }
+
+.reg{ position:absolute; pointer-events:none; color:var(--hair); }
+.reg svg{ display:block; width:14px; height:14px; }
+.reg.tl{ top:9px; left:9px; } .reg.tr{ top:9px; right:9px; }
+.reg.bl{ bottom:9px; left:9px; } .reg.br{ bottom:9px; right:9px; }
+.stamp{
+  position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+  font-family:var(--mono); font-size:9px; letter-spacing:.18em;
+  color:var(--hair); pointer-events:none; text-transform:uppercase;
+}
+
+.hint{
+  position:absolute; left:50%; top:14px; transform:translateX(-50%);
+  font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--ink); color:var(--paper);
+  padding:7px 11px; border-radius:var(--r);
+  pointer-events:none; opacity:0; transition:opacity .35s ease;
+  white-space:nowrap; max-width:92vw; overflow:hidden; text-overflow:ellipsis;
+}
+.hint.show{ opacity:1; }
+
+/* ------------------------------ sheet ------------------------------ */
+.sheet{
+  background:var(--chrome);
+  border-top:1px solid var(--line);
+  box-shadow:0 -8px 28px -18px var(--shadow);
+  display:flex; flex-direction:column;
+  min-height:0; max-height:58dvh;
+}
+.grip{
+  height:22px; flex:none; display:grid; place-items:center; width:100%;
+  touch-action:none;
+}
+.grip::after{
+  content:""; width:34px; height:3px; border-radius:2px; background:var(--hair);
+}
+.tabs{
+  display:grid; grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+  background:var(--panel);
+}
+.tabs button{
+  height:40px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--ink-3); border-right:1px solid var(--line);
+  position:relative;
+}
+.tabs button:last-child{ border-right:none; }
+.tabs button[aria-selected="true"]{ color:var(--ink); background:var(--chrome); }
+.tabs button[aria-selected="true"]::after{
+  content:""; position:absolute; left:0; right:0; top:-1px; height:2px; background:var(--accent);
+}
+.panes{
+  overflow-y:auto; overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  padding:14px 14px calc(16px + env(safe-area-inset-bottom));
+  min-height:0;
+}
+.sheet[data-state="peek"] .panes{ display:none; }
+.pane{ display:none; flex-direction:column; gap:16px; }
+.pane.on{ display:flex; }
+
+/* ------------------------------ controls ------------------------------ */
+.group{ display:flex; flex-direction:column; gap:9px; }
+.group > .eyebrow{ padding-bottom:1px; border-bottom:1px solid var(--line); }
+
+.tiles{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+@media (min-width:400px){ .tiles{ grid-template-columns:repeat(4,1fr); } }
+.tile{
+  border:1px solid var(--line); border-radius:var(--r);
+  background:var(--panel);
+  padding:9px 4px 7px;
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+}
+.tile:active{ background:var(--accent-soft); border-color:var(--accent); }
+.tile canvas{ width:40px; height:40px; display:block; }
+.tile span{
+  font-family:var(--mono); font-size:9px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--ink-2);
+}
+
+.row{ display:flex; flex-direction:column; gap:5px; }
+.row .lab{
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--ink-2);
+}
+.row .val{ color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:.06em; }
+
+input[type=range]{
+  -webkit-appearance:none; appearance:none;
+  width:100%; height:22px; background:transparent; margin:0;
+}
+input[type=range]::-webkit-slider-runnable-track{
+  height:2px; background:var(--hair);
+}
+input[type=range]::-moz-range-track{ height:2px; background:var(--hair); }
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:18px; height:18px; margin-top:-8px;
+  background:var(--paper); border:2px solid var(--ink); border-radius:var(--r);
+}
+input[type=range]::-moz-range-thumb{
+  width:15px; height:15px;
+  background:var(--paper); border:2px solid var(--ink); border-radius:var(--r);
+}
+input[type=range]:active::-webkit-slider-thumb{ background:var(--accent); border-color:var(--accent); }
+input[type=range]:active::-moz-range-thumb{ background:var(--accent); border-color:var(--accent); }
+
+.seg{ display:flex; border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
+.seg button{
+  flex:1; min-height:36px; padding:0 4px;
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink-2); background:var(--panel);
+  border-right:1px solid var(--line);
+}
+.seg button:last-child{ border-right:none; }
+.seg button[aria-pressed="true"]{ background:var(--ink); color:var(--paper); }
+
+.acts{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.acts.two{ grid-template-columns:repeat(2,1fr); }
+.btn{
+  min-height:var(--tap);
+  display:grid; place-items:center; gap:2px;
+  border:1px solid var(--line); border-radius:var(--r);
+  background:var(--panel);
+  font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--ink);
+}
+.btn:active{ background:var(--sunk); }
+.btn.solid{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+.btn.solid:active{ opacity:.82; }
+.btn.warn{ color:var(--danger); }
+
+.empty{
+  border:1px dashed var(--line); border-radius:var(--r);
+  padding:22px 16px; text-align:center; color:var(--ink-3);
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+  line-height:1.8;
+}
+.note{ font-size:12px; color:var(--ink-3); line-height:1.5; }
+
+.chips{ display:flex; flex-wrap:wrap; gap:6px; }
+.chip{
+  border:1px solid var(--line); border-radius:var(--r);
+  padding:8px 11px; min-height:36px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  background:var(--panel); color:var(--ink-2);
+}
+.chip[aria-pressed="true"]{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+
+/* ------------------------------ wide screens ------------------------------ */
+@media (min-width:900px){
+  #app{
+    grid-template-columns:1fr 348px;
+    grid-template-rows:auto 1fr;
+  }
+  .topbar{ grid-column:1 / -1; }
+  .stage{ grid-column:1; grid-row:2; }
+  .sheet{
+    grid-column:2; grid-row:2;
+    border-top:none; border-left:1px solid var(--line);
+    box-shadow:none; max-height:none;
+  }
+  .grip{ display:none; }
+  .tabs{ border-top:none; }
+  .sheet[data-state="peek"] .panes{ display:block; }
+  .panes{ padding-bottom:20px; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{ transition-duration:.01ms !important; animation-duration:.01ms !important; }
+}
+</style>
+
+<div id="app">
+  <header class="topbar">
+    <div class="wordmark">
+      <b>Tatgeo</b>
+      <span class="eyebrow">Geometric flash</span>
+    </div>
+    <div class="readout" id="readout"><i></i><span>No selection</span></div>
+    <button class="iconbtn" id="undo" title="Undo" aria-label="Undo" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">
+        <path d="M4 9h11a5 5 0 0 1 0 10H9"/><path d="M8 4 3.5 9 8 14"/>
+      </svg>
+    </button>
+    <button class="iconbtn" id="quickpng" title="Download PNG" aria-label="Download PNG">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square">
+        <path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="view"></canvas>
+    <div class="reg tl"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1"><path d="M0 3h6M3 0v6"/></svg></div>
+    <div class="reg tr"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1"><path d="M8 3h6M11 0v6"/></svg></div>
+    <div class="reg bl"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1"><path d="M0 11h6M3 8v6"/></svg></div>
+    <div class="reg br"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1"><path d="M8 11h6M11 8v6"/></svg></div>
+    <div class="stamp" id="stamp">Sheet 001</div>
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <section class="sheet" id="sheet" data-state="open">
+    <button class="grip" id="grip" aria-label="Expand or collapse controls"></button>
+    <nav class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-tab="shapes" aria-selected="true">Shapes</button>
+      <button role="tab" data-tab="edit" aria-selected="false">Edit</button>
+      <button role="tab" data-tab="style" aria-selected="false">Style</button>
+      <button role="tab" data-tab="scene" aria-selected="false">Scene</button>
+    </nav>
+    <div class="panes">
+      <div class="pane on" id="pane-shapes"></div>
+      <div class="pane" id="pane-edit"></div>
+      <div class="pane" id="pane-style"></div>
+      <div class="pane" id="pane-scene"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Tatgeo — a hand-rolled hidden-line 3D engine for tattoo linework.
+   Faces are painted back-to-front in the paper colour, then stroked,
+   which removes hidden lines for convex solids without a depth buffer.
+   ===================================================================== */
+
+/* ---------------------------------------------------------- vec / rot */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const rotX = (p, a) => { const c = Math.cos(a), s = Math.sin(a); return [p[0], p[1]*c - p[2]*s, p[1]*s + p[2]*c]; };
+const rotY = (p, a) => { const c = Math.cos(a), s = Math.sin(a); return [p[0]*c + p[2]*s, p[1], -p[0]*s + p[2]*c]; };
+const rotZ = (p, a) => { const c = Math.cos(a), s = Math.sin(a); return [p[0]*c - p[1]*s, p[0]*s + p[1]*c, p[2]]; };
+
+function newell(pts) {
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    nx += (a[1] - b[1]) * (a[2] + b[2]);
+    ny += (a[2] - b[2]) * (a[0] + b[0]);
+    nz += (a[0] - b[0]) * (a[1] + b[1]);
+  }
+  const L = Math.hypot(nx, ny, nz) || 1;
+  return [nx / L, ny / L, nz / L];
+}
+
+/* ---------------------------------------------------------- geometry */
+// Every generator returns { v: vertices, f: faces }. Faces are re-oriented
+// outward from the local origin at build time, so hand-typed winding in the
+// platonic tables can't produce inverted normals.
+function orient(g) {
+  for (const face of g.f) {
+    const pts = face.map(i => g.v[i]);
+    const n = newell(pts);
+    let cx = 0, cy = 0, cz = 0;
+    for (const p of pts) { cx += p[0]; cy += p[1]; cz += p[2]; }
+    const k = 1 / pts.length;
+    if (n[0]*cx*k + n[1]*cy*k + n[2]*cz*k < 0) face.reverse();
+  }
+  // unique edges, each carrying the faces it borders — ghost mode needs the
+  // adjacency to tell a hidden edge from a visible one
+  const seen = new Map(); g.e = []; g.ef = [];
+  for (let fi = 0; fi < g.f.length; fi++) {
+    const face = g.f[fi];
+    for (let i = 0; i < face.length; i++) {
+      const a = face[i], b = face[(i + 1) % face.length];
+      const key = a < b ? a + ':' + b : b + ':' + a;
+      let ei = seen.get(key);
+      if (ei === undefined) { ei = g.e.length; seen.set(key, ei); g.e.push([a, b]); g.ef.push([]); }
+      g.ef[ei].push(fi);
+    }
+  }
+  return g;
+}
+
+function ring(n, r, y, phase) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = phase + i / n * TAU;
+    out.push([Math.cos(a) * r, y, Math.sin(a) * r]);
+  }
+  return out;
+}
+
+function boxGeo(w, h, d) {
+  const v = [];
+  for (const sy of [-1, 1]) for (const sz of [-1, 1]) for (const sx of [-1, 1]) v.push([sx*w, sy*h, sz*d]);
+  // index order: y,z,x  ->  0..7
+  const f = [
+    [0,1,3,2], [4,6,7,5],          // bottom, top
+    [0,2,6,4], [1,5,7,3],          // z-, z+
+    [0,4,5,1], [2,3,7,6]           // x-, x+
+  ];
+  return orient({ v, f });
+}
+
+function prismGeo(n, r, h) {
+  const phase = -Math.PI / 2 + Math.PI / n;
+  const bot = ring(n, r, -h, phase), top = ring(n, r, h, phase);
+  const v = bot.concat(top), f = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    f.push([i, j, n + j, n + i]);
+  }
+  f.push(bot.map((_, i) => i).reverse());
+  f.push(top.map((_, i) => n + i));
+  return orient({ v, f });
+}
+
+function pyramidGeo(n, r, h) {
+  const phase = -Math.PI / 2 + Math.PI / n;
+  const base = ring(n, r, -h, phase);
+  const v = base.concat([[0, h, 0]]), f = [];
+  for (let i = 0; i < n; i++) f.push([i, (i + 1) % n, n]);
+  f.push(base.map((_, i) => i).reverse());
+  return orient({ v, f });
+}
+
+function crystalGeo(n, r, h) {
+  const phase = -Math.PI / 2 + Math.PI / n;
+  const cap = r * 1.15;
+  const bot = ring(n, r, -h, phase), top = ring(n, r, h, phase);
+  const v = bot.concat(top, [[0, h + cap, 0], [0, -h - cap, 0]]);
+  const f = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    f.push([i, j, n + j, n + i]);
+    f.push([n + i, n + j, 2 * n]);
+    f.push([j, i, 2 * n + 1]);
+  }
+  return orient({ v, f });
+}
+
+function tetraGeo(s) {
+  const k = s * 0.72;
+  const v = [[k,k,k], [k,-k,-k], [-k,k,-k], [-k,-k,k]];
+  return orient({ v, f: [[0,1,2],[0,2,3],[0,3,1],[1,3,2]] });
+}
+
+function octaGeo(s) {
+  const v = [[s,0,0],[-s,0,0],[0,s,0],[0,-s,0],[0,0,s],[0,0,-s]];
+  const f = [[0,2,4],[2,1,4],[1,3,4],[3,0,4],[2,0,5],[1,2,5],[3,1,5],[0,3,5]];
+  return orient({ v, f });
+}
+
+const ICO_V = (() => {
+  const t = (1 + Math.sqrt(5)) / 2;
+  return [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],
+          [0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]]
+         .map(p => { const L = Math.hypot(p[0],p[1],p[2]); return [p[0]/L, p[1]/L, p[2]/L]; });
+})();
+const ICO_F = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],
+               [10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],
+               [2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+
+function icosaGeo(s) {
+  return orient({ v: ICO_V.map(p => [p[0]*s, p[1]*s, p[2]*s]), f: ICO_F.map(f => f.slice()) });
+}
+
+// The dodecahedron is built as the dual of the icosahedron: each icosahedron
+// vertex becomes a pentagon made from the centroids of its five faces.
+function dodecaGeo(s) {
+  const centers = ICO_F.map(f => {
+    let x = 0, y = 0, z = 0;
+    for (const i of f) { x += ICO_V[i][0]; y += ICO_V[i][1]; z += ICO_V[i][2]; }
+    const L = Math.hypot(x, y, z);
+    return [x/L*s, y/L*s, z/L*s];
+  });
+  const faces = [];
+  for (let vi = 0; vi < ICO_V.length; vi++) {
+    const around = [];
+    for (let fi = 0; fi < ICO_F.length; fi++) if (ICO_F[fi].includes(vi)) around.push(fi);
+    const n = ICO_V[vi];
+    // build a basis in the plane perpendicular to the vertex normal, then sort by angle
+    let ref = Math.abs(n[1]) < 0.9 ? [0,1,0] : [1,0,0];
+    const u = [n[1]*ref[2] - n[2]*ref[1], n[2]*ref[0] - n[0]*ref[2], n[0]*ref[1] - n[1]*ref[0]];
+    const uL = Math.hypot(u[0],u[1],u[2]); u[0]/=uL; u[1]/=uL; u[2]/=uL;
+    const w = [n[1]*u[2] - n[2]*u[1], n[2]*u[0] - n[0]*u[2], n[0]*u[1] - n[1]*u[0]];
+    around.sort((a, b) => {
+      const pa = centers[a], pb = centers[b];
+      const aa = Math.atan2(pa[0]*w[0]+pa[1]*w[1]+pa[2]*w[2], pa[0]*u[0]+pa[1]*u[1]+pa[2]*u[2]);
+      const ab = Math.atan2(pb[0]*w[0]+pb[1]*w[1]+pb[2]*w[2], pb[0]*u[0]+pb[1]*u[1]+pb[2]*u[2]);
+      return aa - ab;
+    });
+    faces.push(around);
+  }
+  return orient({ v: centers, f: faces });
+}
+
+const KINDS = {
+  box:     { label:'Cube',    build:s => boxGeo(s.size, s.height, s.depth),        params:['size','height','depth'] },
+  prism:   { label:'Prism',   build:s => prismGeo(s.sides, s.size, s.height),      params:['sides','size','height'] },
+  crystal: { label:'Crystal', build:s => crystalGeo(s.sides, s.size, s.height),    params:['sides','size','height'] },
+  pyramid: { label:'Pyramid', build:s => pyramidGeo(s.sides, s.size, s.height),    params:['sides','size','height'] },
+  tetra:   { label:'Tetra',   build:s => tetraGeo(s.size),                          params:['size'] },
+  octa:    { label:'Octa',    build:s => octaGeo(s.size),                           params:['size'] },
+  icosa:   { label:'Icosa',   build:s => icosaGeo(s.size),                          params:['size'] },
+  dodeca:  { label:'Dodeca',  build:s => dodecaGeo(s.size),                         params:['size'] }
+};
+
+const geoCache = new Map();
+function geoFor(s) {
+  const k = KINDS[s.kind];
+  const key = [s.kind, s.size, s.height, s.depth, s.sides].join('|');
+  let g = geoCache.get(key);
+  if (!g) { g = k.build(s); geoCache.set(key, g); if (geoCache.size > 300) geoCache.clear(); }
+  return g;
+}
+
+/* ---------------------------------------------------------- state */
+let uid = 1;
+function makeShape(kind, over) {
+  return Object.assign({
+    id: uid++, kind,
+    pos: [0, 0, 0], rot: [0, 0, 0],
+    size: 1, height: 1, depth: 1, sides: 6,
+    name: KINDS[kind].label
+  }, over || {});
+}
+
+const S = {
+  shapes: [],
+  sel: null,
+  cam: { yaw: -0.62, pitch: 0.48, dist: 9.5 },
+  style: { mode: 'solid', fill: 'open', weight: 1.7, tone: 0.5, light: 0.85, proj: 'ortho', grid: true },
+  sym: { mirror: false, radial: 1 },
+  ex: { stencil: true }
+};
+
+const PRESETS = {
+  // a contiguous stack — each tier sits exactly on the one below and turns 24°
+  monolith: () => [
+    makeShape('box', { pos:[0,-1.55,0], size:1.30, height:0.35, depth:1.30 }),
+    makeShape('box', { pos:[0,-0.55,0], size:1.00, height:0.65, depth:1.00, rot:[0,0.42,0] }),
+    makeShape('box', { pos:[0, 0.55,0], size:0.70, height:0.45, depth:0.70, rot:[0,0.84,0] })
+  ],
+  quartz: () => [
+    makeShape('crystal', { pos:[0,0.2,0], sides:6, size:0.72, height:1.5 }),
+    makeShape('crystal', { pos:[-1.25,-0.5,0.35], sides:6, size:0.44, height:0.95, rot:[0.16,0.6,0.3] }),
+    makeShape('crystal', { pos:[1.15,-0.7,-0.3], sides:6, size:0.38, height:0.75, rot:[-0.2,0.2,-0.34] })
+  ],
+  // one cell per orbit of the hex lattice; the ×6 repeat closes both rings.
+  // 1.386 = flat-to-flat width at radius 0.8, so neighbours meet edge to edge.
+  hive: () => [
+    makeShape('prism', { pos:[1.386,0,0],     sides:6, size:0.8, height:0.16 }),
+    makeShape('prism', { pos:[2.078,0,1.200], sides:6, size:0.8, height:0.16 }),
+    makeShape('prism', { pos:[2.772,0,0],     sides:6, size:0.8, height:0.16 })
+  ],
+  solids: () => [
+    makeShape('icosa',  { pos:[-2.1,0,0], size:0.9 }),
+    makeShape('dodeca', { pos:[0,0,0], size:0.95 }),
+    makeShape('octa',   { pos:[2.1,0,0], size:1.05 })
+  ]
+};
+
+const HIVE_RADIAL = 6;
+
+/* ---------------------------------------------------------- history */
+const past = [];
+function snapshot() {
+  return JSON.stringify({ shapes: S.shapes, sel: S.sel, sym: S.sym });
+}
+function commit() {
+  past.push(snapshot());
+  if (past.length > 40) past.shift();
+  el.undo.disabled = false;
+  save();
+}
+function undo() {
+  const prev = past.pop();
+  if (!prev) return;
+  const d = JSON.parse(prev);
+  S.shapes = d.shapes; S.sel = d.sel; S.sym = d.sym;
+  el.undo.disabled = past.length === 0;
+  save(); syncAll(); draw();
+}
+
+const LS = 'tatgeo.sheet.v1';
+function save() {
+  try {
+    localStorage.setItem(LS, JSON.stringify({
+      shapes: S.shapes, cam: S.cam, style: S.style, sym: S.sym, sel: S.sel
+    }));
+  } catch (e) { /* private mode — the sheet just won't persist */ }
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(LS);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!d.shapes || !d.shapes.length) return false;
+    S.shapes = d.shapes;
+    Object.assign(S.cam, d.cam || {});
+    Object.assign(S.style, d.style || {});
+    Object.assign(S.sym, d.sym || {});
+    S.sel = d.sel ?? null;
+    uid = Math.max(...S.shapes.map(s => s.id)) + 1;
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ---------------------------------------------------------- camera */
+// View is rotY(-yaw) then rotX(+pitch), so the camera sits at world y =
+// +dist·sin(pitch): a positive pitch looks down on the sheet. Inverting this
+// pair flips which faces cull, and stacked solids then sort back-to-front.
+function camBasis() {
+  const { yaw, pitch } = S.cam;
+  const b = v => rotY(rotX(v, -pitch), yaw);
+  return { right: b([1,0,0]), up: b([0,1,0]) };
+}
+function toView(p) { return rotX(rotY([p[0], p[1], p[2]], -S.cam.yaw), S.cam.pitch); }
+
+/* ---------------------------------------------------------- instances */
+function instances() {
+  const list = [];
+  const n = Math.max(1, S.sym.radial | 0);
+  for (let k = 0; k < n; k++) {
+    const a = k / n * TAU;
+    list.push({ spin: a, mirror: false });
+    if (S.sym.mirror) list.push({ spin: a, mirror: true });
+  }
+  return list;
+}
+
+/* ---------------------------------------------------------- hatching */
+function convexHatch(pts, angle, spacing, out, width) {
+  const c = Math.cos(-angle), s = Math.sin(-angle);
+  const rp = pts.map(p => [p[0]*c - p[1]*s, p[0]*s + p[1]*c]);
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of rp) { if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1]; }
+  const count = (maxY - minY) / spacing;
+  if (!isFinite(count) || count > 240) return;
+  const ic = Math.cos(angle), is = Math.sin(angle);
+  for (let y = Math.ceil(minY / spacing) * spacing; y <= maxY; y += spacing) {
+    const xs = [];
+    for (let i = 0; i < rp.length; i++) {
+      const a = rp[i], b = rp[(i + 1) % rp.length];
+      if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) {
+        xs.push(a[0] + (y - a[1]) / (b[1] - a[1]) * (b[0] - a[0]));
+      }
+    }
+    if (xs.length < 2) continue;
+    xs.sort((m, n) => m - n);
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const p1 = [xs[i]*ic - y*is, xs[i]*is + y*ic];
+      const p2 = [xs[i+1]*ic - y*is, xs[i+1]*is + y*ic];
+      out.push({ t:'line', p:[p1, p2], c:'ink', w:width });
+    }
+  }
+}
+
+const rand2 = (x, y) => { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); };
+
+function convexDots(pts, spacing, out, r) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of pts) {
+    if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+    if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+  }
+  const cols = (x1 - x0) / spacing, rows = (y1 - y0) / spacing;
+  if (!isFinite(cols) || cols * rows > 5000) return;
+  for (let gy = 0; gy <= rows; gy++) {
+    for (let gx = 0; gx <= cols; gx++) {
+      const px = x0 + (gx + (rand2(gx, gy) - 0.5) * 0.9) * spacing;
+      const py = y0 + (gy + (rand2(gy, gx) - 0.5) * 0.9) * spacing;
+      if (inPoly(px, py, pts)) out.push({ t:'dot', x:px, y:py, r });
+    }
+  }
+}
+
+function inPoly(x, y, pts) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a[1] > y) !== (b[1] > y) &&
+        x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
+/* ---------------------------------------------------------- the renderer */
+// Produces a flat list of drawing ops. Canvas and SVG both consume this list,
+// so the exported stencil is the same drawing the screen shows.
+function buildOps(opt) {
+  const { w, h, lw, exportMode, draft } = opt;
+  const ops = [], pick = [];
+  const cx = w / 2, cy = h / 2;
+  const focal = Math.min(w, h) * 1.15;
+  const scale = focal / S.cam.dist;
+
+  const project = v => {
+    if (S.style.proj === 'ortho') return [cx + v[0] * scale, cy - v[1] * scale, S.cam.dist - v[2]];
+    const d = Math.max(0.35, S.cam.dist - v[2]);
+    return [cx + v[0] * focal / d, cy - v[1] * focal / d, d];
+  };
+
+  const la = S.style.light * TAU;
+  const L = (() => {
+    const v = [Math.cos(la) * 0.75, 0.6, Math.sin(la) * 0.75];
+    const m = Math.hypot(v[0], v[1], v[2]);
+    return [v[0]/m, v[1]/m, v[2]/m];
+  })();
+
+  const mode = S.style.mode;
+  const fill = draft ? 'open' : S.style.fill;
+  const solidPass = mode !== 'wire';
+
+  /* ground construction grid — a drafting reference, never exported */
+  if (S.style.grid && !exportMode) {
+    for (const r of [1.6, 3.2, 4.8]) {
+      const pts = [];
+      for (let i = 0; i <= 72; i++) {
+        const a = i / 72 * TAU;
+        pts.push(project(toView([Math.cos(a) * r, -2.2, Math.sin(a) * r])));
+      }
+      for (let i = 0; i + 1 < pts.length; i++) ops.push({ t:'line', p:[pts[i], pts[i+1]], c:'hair', w:lw * 0.5 });
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * TAU;
+      const p1 = project(toView([Math.cos(a) * 1.6, -2.2, Math.sin(a) * 1.6]));
+      const p2 = project(toView([Math.cos(a) * 4.8, -2.2, Math.sin(a) * 4.8]));
+      ops.push({ t:'line', p:[p1, p2], c:'hair', w:lw * 0.5 });
+    }
+  }
+
+  const insts = instances();
+  const faces = [];
+  const wireEdges = [];
+
+  for (let si = 0; si < S.shapes.length; si++) {
+    const sh = S.shapes[si];
+    const g = geoFor(sh);
+    const selected = sh.id === S.sel && !exportMode;
+
+    for (const inst of insts) {
+      // local -> world
+      const world = g.v.map(p => {
+        let q = rotZ(rotY(rotX(p, sh.rot[0]), sh.rot[1]), sh.rot[2]);
+        q = [q[0] + sh.pos[0], q[1] + sh.pos[1], q[2] + sh.pos[2]];
+        if (inst.mirror) q = [-q[0], q[1], q[2]];
+        if (inst.spin) q = rotY(q, inst.spin);
+        return q;
+      });
+      let ox = 0, oy = 0, oz = 0;
+      for (const p of world) { ox += p[0]; oy += p[1]; oz += p[2]; }
+      const k = 1 / world.length;
+      const origin = [ox * k, oy * k, oz * k];
+
+      const view = world.map(toView);
+      const scr = view.map(project);
+      const odepth = project(toView(origin))[2];
+
+      const front = new Array(g.f.length);
+      for (let fi = 0; fi < g.f.length; fi++) {
+        const face = g.f[fi];
+        const wp = face.map(i => world[i]);
+        let n = newell(wp);
+        let fx = 0, fy = 0, fz = 0;
+        for (const p of wp) { fx += p[0]; fy += p[1]; fz += p[2]; }
+        const fk = 1 / wp.length;
+        const fc = [fx * fk, fy * fk, fz * fk];
+        if (n[0]*(fc[0]-origin[0]) + n[1]*(fc[1]-origin[1]) + n[2]*(fc[2]-origin[2]) < 0) n = [-n[0], -n[1], -n[2]];
+
+        const nv = toView(n);
+        const vc = face.reduce((acc, i) => [acc[0]+view[i][0], acc[1]+view[i][1], acc[2]+view[i][2]], [0,0,0]).map(x => x * fk);
+        const toCam = S.style.proj === 'ortho' ? [0, 0, 1] : [-vc[0], -vc[1], S.cam.dist - vc[2]];
+        const isFront = nv[0]*toCam[0] + nv[1]*toCam[1] + nv[2]*toCam[2] > 0;
+        front[fi] = isFront;
+        if (!solidPass || !isFront) continue;
+
+        const pts = face.map(i => [scr[i][0], scr[i][1]]);
+        let depth = 0;
+        for (const i of face) depth += scr[i][2];
+        depth *= fk;
+
+        const bright = clamp((n[0]*L[0] + n[1]*L[1] + n[2]*L[2]) * 0.5 + 0.5, 0, 1);
+        faces.push({ pts, depth, odepth, bright, sel:selected, edges:face, scr, shapeIdx:si });
+      }
+
+      if (mode === 'wire') {
+        for (const [a, b] of g.e) wireEdges.push({ p:[scr[a], scr[b]], sel:selected, ghost:false });
+      } else if (mode === 'ghost') {
+        // an edge is hidden when neither face it borders turns toward the camera;
+        // the visible ones are already stroked by the solid pass
+        for (let ei = 0; ei < g.e.length; ei++) {
+          let vis = false;
+          for (const fi of g.ef[ei]) if (front[fi]) { vis = true; break; }
+          if (!vis) wireEdges.push({ p:[scr[g.e[ei][0]], scr[g.e[ei][1]]], sel:selected, ghost:true });
+        }
+      }
+    }
+  }
+
+  // Sort whole forms before their faces. Painter's on a flat face list puts one
+  // solid's near face behind another's far face whenever their spans overlap;
+  // resolving the form first keeps separated solids stacking correctly.
+  faces.sort((a, b) => (b.odepth - a.odepth) || (b.depth - a.depth));
+
+  const tone = S.style.tone;
+  for (const f of faces) {
+    pick.push({ pts:f.pts, depth:f.depth, shapeIdx:f.shapeIdx });
+
+    if (fill === 'black' && f.bright < 0.15 + tone * 0.6) {
+      ops.push({ t:'poly', pts:f.pts, f:'ink' });
+    } else {
+      ops.push({ t:'poly', pts:f.pts, f:'paper' });
+      if (fill === 'hatch') {
+        const base = 13 - tone * 9.2;
+        const sp = clamp(base * (0.35 + f.bright * 1.75), 2.2, 42) * lw;
+        const ang = Math.atan2(f.pts[1][1] - f.pts[0][1], f.pts[1][0] - f.pts[0][0]) + 0.85;
+        convexHatch(f.pts, ang, sp, ops, lw * 0.72);
+      } else if (fill === 'dots') {
+        const base = 12 - tone * 7.6;
+        const sp = clamp(base * (0.45 + f.bright * 1.7), 3, 40) * lw;
+        convexDots(f.pts, sp, ops, lw * 0.62);
+      }
+    }
+
+    const wgt = S.style.weight * lw * (f.sel ? 1.55 : 1);
+    for (let i = 0; i < f.edges.length; i++) {
+      const a = f.scr[f.edges[i]], b = f.scr[f.edges[(i + 1) % f.edges.length]];
+      ops.push({ t:'line', p:[a, b], c: f.sel ? 'accent' : 'ink', w:wgt });
+    }
+  }
+
+  for (const e of wireEdges) {
+    ops.push({
+      t:'line', p:e.p,
+      c: e.sel ? 'accent' : (e.ghost ? 'ghost' : 'ink'),
+      w: S.style.weight * lw * (e.ghost ? 0.6 : e.sel ? 1.55 : 1),
+      dash: e.ghost
+    });
+  }
+
+  return { ops, pick };
+}
+
+/* ---------------------------------------------------------- painters */
+function paint(ctx, ops, col, w, h) {
+  ctx.save();
+  ctx.fillStyle = col.paper;
+  ctx.fillRect(0, 0, w, h);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const o of ops) {
+    if (o.t === 'poly') {
+      ctx.beginPath();
+      ctx.moveTo(o.pts[0][0], o.pts[0][1]);
+      for (let i = 1; i < o.pts.length; i++) ctx.lineTo(o.pts[i][0], o.pts[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = o.f === 'ink' ? col.ink : col.paper;
+      ctx.fill();
+    } else if (o.t === 'line') {
+      ctx.beginPath();
+      ctx.moveTo(o.p[0][0], o.p[0][1]);
+      ctx.lineTo(o.p[1][0], o.p[1][1]);
+      ctx.strokeStyle = o.c === 'accent' ? col.accent : o.c === 'ghost' ? col.ghost : o.c === 'hair' ? col.hair : col.ink;
+      ctx.lineWidth = o.w;
+      ctx.setLineDash(o.dash ? [3, 4] : []);
+      ctx.stroke();
+    } else if (o.t === 'dot') {
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, o.r, 0, TAU);
+      ctx.fillStyle = col.ink;
+      ctx.fill();
+    }
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function toSVG(ops, w, h, col) {
+  const n = v => Math.round(v * 100) / 100;
+  const out = [`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`];
+  out.push(`<rect width="${w}" height="${h}" fill="${col.paper}"/>`);
+  out.push(`<g stroke-linecap="round" stroke-linejoin="round">`);
+  for (const o of ops) {
+    if (o.t === 'poly') {
+      const d = o.pts.map(p => `${n(p[0])},${n(p[1])}`).join(' ');
+      out.push(`<polygon points="${d}" fill="${o.f === 'ink' ? col.ink : col.paper}"/>`);
+    } else if (o.t === 'line') {
+      const c = o.c === 'ghost' ? col.ghost : o.c === 'hair' ? col.hair : col.ink;
+      out.push(`<line x1="${n(o.p[0][0])}" y1="${n(o.p[0][1])}" x2="${n(o.p[1][0])}" y2="${n(o.p[1][1])}" stroke="${c}" stroke-width="${n(o.w)}"${o.dash ? ' stroke-dasharray="3 4"' : ''}/>`);
+    } else if (o.t === 'dot') {
+      out.push(`<circle cx="${n(o.x)}" cy="${n(o.y)}" r="${n(o.r)}" fill="${col.ink}"/>`);
+    }
+  }
+  out.push('</g></svg>');
+  return out.join('\n');
+}
+
+/* ---------------------------------------------------------- canvas host */
+const el = {
+  stage: document.getElementById('stage'),
+  canvas: document.getElementById('view'),
+  readout: document.getElementById('readout'),
+  undo: document.getElementById('undo'),
+  quickpng: document.getElementById('quickpng'),
+  sheet: document.getElementById('sheet'),
+  grip: document.getElementById('grip'),
+  tabs: document.getElementById('tabs'),
+  hint: document.getElementById('hint'),
+  stamp: document.getElementById('stamp')
+};
+const ctx = el.canvas.getContext('2d');
+let CW = 0, CH = 0, DPR = 1, lastPick = [];
+let interacting = false, queued = false;
+
+function themeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const g = k => cs.getPropertyValue(k).trim();
+  return { paper:g('--paper'), ink:g('--ink'), ghost:g('--ink-3'), hair:g('--hair'), accent:g('--accent') };
+}
+
+function resize() {
+  const r = el.stage.getBoundingClientRect();
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  CW = Math.max(1, Math.round(r.width));
+  CH = Math.max(1, Math.round(r.height));
+  el.canvas.width = Math.round(CW * DPR);
+  el.canvas.height = Math.round(CH * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  draw();
+}
+
+function draw() {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => {
+    queued = false;
+    const { ops, pick } = buildOps({ w:CW, h:CH, lw:1, draft:interacting });
+    lastPick = pick;
+    paint(ctx, ops, themeColors(), CW, CH);
+    el.stamp.textContent = `Sheet 001 · ${S.shapes.length} form${S.shapes.length === 1 ? '' : 's'}` +
+      (S.sym.radial > 1 ? ` · ×${S.sym.radial}` : '') + (S.sym.mirror ? ' · mirror' : '');
+  });
+}
+
+/* ---------------------------------------------------------- picking */
+function pickAt(x, y) {
+  for (let i = lastPick.length - 1; i >= 0; i--) {
+    if (inPoly(x, y, lastPick[i].pts)) return lastPick[i].shapeIdx;
+  }
+  return -1;
+}
+
+/* ---------------------------------------------------------- gestures */
+const pointers = new Map();
+let gest = null;
+
+el.canvas.addEventListener('pointerdown', e => {
+  el.canvas.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  const r = el.canvas.getBoundingClientRect();
+
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    gest = { type:'pinch', d:Math.hypot(a.x - b.x, a.y - b.y), dist:S.cam.dist };
+    return;
+  }
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const hit = pickAt(px, py);
+  if (hit >= 0) {
+    const sh = S.shapes[hit];
+    if (S.sel !== sh.id) { S.sel = sh.id; syncEdit(); syncReadout(); draw(); haptic(); }
+    gest = { type:'move', x:e.clientX, y:e.clientY, start:snapshot(), moved:false, shape:sh, pos:sh.pos.slice() };
+  } else {
+    gest = { type:'orbit', x:e.clientX, y:e.clientY, yaw:S.cam.yaw, pitch:S.cam.pitch, moved:false, wasSel:S.sel };
+  }
+  interacting = true;
+});
+
+el.canvas.addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+  if (!gest) return;
+
+  if (gest.type === 'pinch') {
+    if (pointers.size < 2) return;
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    S.cam.dist = clamp(gest.dist * (gest.d / Math.max(1, d)), 3, 34);
+    draw();
+    return;
+  }
+  const dx = e.clientX - gest.x, dy = e.clientY - gest.y;
+  if (Math.abs(dx) + Math.abs(dy) > 4) gest.moved = true;
+
+  if (gest.type === 'orbit') {
+    S.cam.yaw = gest.yaw - dx * 0.0075;
+    S.cam.pitch = clamp(gest.pitch + dy * 0.0075, -1.45, 1.45);
+    draw();
+  } else if (gest.type === 'move') {
+    const focal = Math.min(CW, CH) * 1.15;
+    let ppu;
+    if (S.style.proj === 'ortho') ppu = focal / S.cam.dist;
+    else {
+      const v = toView(gest.pos);
+      ppu = focal / Math.max(0.35, S.cam.dist - v[2]);
+    }
+    const { right, up } = camBasis();
+    const wx = dx / ppu, wy = -dy / ppu;
+    gest.shape.pos = [
+      gest.pos[0] + right[0]*wx + up[0]*wy,
+      gest.pos[1] + right[1]*wx + up[1]*wy,
+      gest.pos[2] + right[2]*wx + up[2]*wy
+    ];
+    syncEditValues();
+    draw();
+  }
+});
+
+function endPointer(e) {
+  pointers.delete(e.pointerId);
+  if (!gest) return;
+  if (gest.type === 'move' && gest.moved) { past.push(gest.start); el.undo.disabled = false; save(); }
+  if (gest.type === 'orbit') {
+    if (!gest.moved && gest.wasSel !== null) { S.sel = null; syncEdit(); syncReadout(); }
+    save();
+  }
+  if (gest.type === 'move' && !gest.moved) save();
+  if (pointers.size === 0 || gest.type === 'pinch') {
+    gest = null; interacting = false;
+    styleRows.forEach(r => r.refresh && r.refresh());
+    save(); draw();
+  }
+}
+el.canvas.addEventListener('pointerup', endPointer);
+el.canvas.addEventListener('pointercancel', endPointer);
+
+el.canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  S.cam.dist = clamp(S.cam.dist * (1 + Math.sign(e.deltaY) * 0.09), 3, 34);
+  draw(); save();
+}, { passive:false });
+
+function haptic() { if (navigator.vibrate) try { navigator.vibrate(8); } catch (e) {} }
+
+/* ---------------------------------------------------------- UI factory */
+function node(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function group(title) {
+  const g = node('div', 'group');
+  if (title) g.appendChild(node('div', 'eyebrow', title));
+  return g;
+}
+
+function slider(label, opts) {
+  const { min, max, step, get, set, fmt } = opts;
+  const row = node('div', 'row');
+  const lab = node('div', 'lab');
+  lab.appendChild(node('span', null, label));
+  const val = node('span', 'val');
+  lab.appendChild(val);
+  const inp = document.createElement('input');
+  inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step;
+  inp.setAttribute('aria-label', label);
+  const show = () => { const v = get(); inp.value = v; val.textContent = fmt ? fmt(v) : (+v).toFixed(2); };
+  inp.addEventListener('pointerdown', () => { row._pending = snapshot(); });
+  inp.addEventListener('input', () => { set(parseFloat(inp.value)); show(); interacting = true; draw(); });
+  const settle = () => {
+    if (row._pending) { past.push(row._pending); row._pending = null; el.undo.disabled = false; }
+    interacting = false; save(); draw();
+  };
+  inp.addEventListener('change', settle);
+  inp.addEventListener('pointerup', settle);
+  row.appendChild(lab); row.appendChild(inp);
+  row.refresh = show; show();
+  return row;
+}
+
+function segmented(label, options, get, set) {
+  const row = node('div', 'row');
+  if (label) {
+    const lab = node('div', 'lab');
+    lab.appendChild(node('span', null, label));
+    row.appendChild(lab);
+  }
+  const seg = node('div', 'seg');
+  const btns = options.map(o => {
+    const b = node('button', null, o.label);
+    b.addEventListener('click', () => { set(o.value); refresh(); draw(); save(); });
+    seg.appendChild(b);
+    return b;
+  });
+  function refresh() {
+    const cur = get();
+    options.forEach((o, i) => btns[i].setAttribute('aria-pressed', String(o.value === cur)));
+  }
+  row.appendChild(seg); row.refresh = refresh; refresh();
+  return row;
+}
+
+function actionBtn(label, fn, cls) {
+  const b = node('button', 'btn' + (cls ? ' ' + cls : ''), label);
+  b.addEventListener('click', fn);
+  return b;
+}
+
+/* ---------------------------------------------------------- shape icons */
+function iconFor(kind) {
+  const c = document.createElement('canvas');
+  const d = 40, dpr = Math.min(window.devicePixelRatio || 1, 3);
+  c.width = d * dpr; c.height = d * dpr;
+  const cc = c.getContext('2d');
+  cc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const proto = defaultsFor(kind);
+  const g = KINDS[kind].build(proto);
+  // the tetra's verts sit on cube diagonals, so the shared angle shows it
+  // face-on as a flat triangle — turn it to catch an edge instead
+  const yaw = -0.6 + (kind === 'tetra' ? 0.8 : 0), pitch = 0.5, sc = 12.5;
+  const P = p => {
+    const q = rotX(rotY(p, -yaw), pitch);
+    return [d/2 + q[0]*sc, d/2 - q[1]*sc, -q[2]];
+  };
+  const scr = g.v.map(P);
+  const faces = g.f.map(f => {
+    const wp = f.map(i => g.v[i]);
+    let n = newell(wp);
+    let cx=0, cy=0, cz=0; for (const p of wp) { cx+=p[0]; cy+=p[1]; cz+=p[2]; }
+    const k = 1/wp.length;
+    if (n[0]*cx*k + n[1]*cy*k + n[2]*cz*k < 0) n = [-n[0],-n[1],-n[2]];
+    const nv = rotX(rotY(n, -yaw), pitch);
+    let dep = 0; for (const i of f) dep += scr[i][2];
+    return { f, dep: dep*k, front: nv[2] > 0 };
+  }).filter(x => x.front).sort((a,b) => b.dep - a.dep);
+
+  const col = themeColors();
+  cc.lineJoin = 'round'; cc.lineCap = 'round';
+  for (const fc of faces) {
+    cc.beginPath();
+    fc.f.forEach((i, j) => j ? cc.lineTo(scr[i][0], scr[i][1]) : cc.moveTo(scr[i][0], scr[i][1]));
+    cc.closePath();
+    cc.fillStyle = col.paper; cc.fill();
+    cc.strokeStyle = col.ink; cc.lineWidth = 1.1; cc.stroke();
+  }
+  return c;
+}
+
+function defaultsFor(kind) {
+  const base = { size:1, height:1, depth:1, sides:6 };
+  if (kind === 'prism') return Object.assign(base, { size:0.85, height:1.15, sides:6 });
+  if (kind === 'crystal') return Object.assign(base, { size:0.68, height:1.05, sides:6 });
+  if (kind === 'pyramid') return Object.assign(base, { size:1, height:1.1, sides:4 });
+  return base;
+}
+
+/* ---------------------------------------------------------- panes */
+const TILES = [
+  { kind:'box',     label:'Cube' },
+  { kind:'prism',   label:'Hexagon', over:{ sides:6, size:0.85, height:1.15 } },
+  { kind:'prism',   label:'Prism',   over:{ sides:3, size:0.95, height:1.2 } },
+  { kind:'crystal', label:'Crystal', over:{ sides:6, size:0.68, height:1.05 } },
+  { kind:'pyramid', label:'Pyramid', over:{ sides:4, size:1, height:1.1 } },
+  { kind:'tetra',   label:'Tetra' },
+  { kind:'octa',    label:'Octa' },
+  { kind:'icosa',   label:'Icosa' },
+  { kind:'dodeca',  label:'Dodeca' }
+];
+
+function buildShapesPane() {
+  const p = document.getElementById('pane-shapes');
+  p.innerHTML = '';
+  const g = group('Add a form');
+  const tiles = node('div', 'tiles');
+  for (const t of TILES) {
+    const b = node('button', 'tile');
+    b.appendChild(iconFor(t.kind));
+    b.appendChild(node('span', null, t.label));
+    b.addEventListener('click', () => addShape(t));
+    tiles.appendChild(b);
+  }
+  g.appendChild(tiles);
+  p.appendChild(g);
+
+  const g2 = group('Start from');
+  const acts = node('div', 'acts');
+  acts.appendChild(actionBtn('Monolith', () => loadPreset('monolith')));
+  acts.appendChild(actionBtn('Quartz', () => loadPreset('quartz')));
+  acts.appendChild(actionBtn('Hive', () => loadPreset('hive')));
+  g2.appendChild(acts);
+  g2.appendChild(node('p', 'note', 'Presets replace the sheet. Undo brings your work back.'));
+  p.appendChild(g2);
+}
+
+function addShape(t) {
+  commit();
+  const d = defaultsFor(t.kind);
+  const s = makeShape(t.kind, Object.assign(d, t.over || {}, { name:t.label }));
+  // lay new forms out on a golden-angle spiral so each one lands clear of the
+  // last instead of stacking into the middle of whatever is already there
+  const n = S.shapes.length;
+  const a = n * 2.39996, r = n === 0 ? 0 : 1.5 * Math.sqrt(n + 0.7);
+  s.pos = [Math.cos(a) * r, 0, Math.sin(a) * r];
+  S.shapes.push(s);
+  S.sel = s.id;
+  syncAll(); draw();
+  toast(`${t.label} added — drag it on the sheet`);
+  haptic();
+}
+
+function loadPreset(name) {
+  commit();
+  S.shapes = PRESETS[name]();
+  S.sym.radial = name === 'hive' ? HIVE_RADIAL : 1;
+  S.sym.mirror = false;
+  S.sel = null;
+  syncAll(); draw();
+  toast(name + ' loaded');
+}
+
+/* -------- edit pane -------- */
+let editRows = [];
+function buildEditPane() {
+  const p = document.getElementById('pane-edit');
+  p.innerHTML = '';
+  editRows = [];
+  const sh = current();
+  if (!sh) {
+    const e = node('div', 'empty');
+    e.innerHTML = 'Nothing selected<br>Tap a form on the sheet';
+    p.appendChild(e);
+    return;
+  }
+  const kind = KINDS[sh.kind];
+
+  const gd = group(`${sh.name} · form ${S.shapes.indexOf(sh) + 1}`);
+  const dims = [];
+  if (kind.params.includes('sides'))
+    dims.push(slider('Sides', { min:3, max:12, step:1, get:() => sh.sides, set:v => sh.sides = v, fmt:v => String(v | 0) }));
+  if (kind.params.includes('size'))
+    dims.push(slider(sh.kind === 'box' ? 'Width' : 'Radius', { min:0.15, max:3, step:0.01, get:() => sh.size, set:v => sh.size = v }));
+  if (kind.params.includes('height'))
+    dims.push(slider('Height', { min:0.08, max:3.5, step:0.01, get:() => sh.height, set:v => sh.height = v }));
+  if (kind.params.includes('depth'))
+    dims.push(slider('Depth', { min:0.08, max:3, step:0.01, get:() => sh.depth, set:v => sh.depth = v }));
+  dims.forEach(d => { gd.appendChild(d); editRows.push(d); });
+  p.appendChild(gd);
+
+  const gr = group('Rotate');
+  ['Tilt', 'Spin', 'Roll'].forEach((lbl, i) => {
+    const r = slider(lbl, {
+      min:-180, max:180, step:1,
+      get:() => Math.round(sh.rot[i] * 180 / Math.PI),
+      set:v => sh.rot[i] = v * Math.PI / 180,
+      fmt:v => `${Math.round(v)}°`
+    });
+    gr.appendChild(r); editRows.push(r);
+  });
+  p.appendChild(gr);
+
+  const gp = group('Position');
+  ['Across', 'Up', 'Depth'].forEach((lbl, i) => {
+    const r = slider(lbl, { min:-5, max:5, step:0.01, get:() => sh.pos[i], set:v => sh.pos[i] = v });
+    gp.appendChild(r); editRows.push(r);
+  });
+  p.appendChild(gp);
+
+  const ga = group('Form');
+  const acts = node('div', 'acts');
+  acts.appendChild(actionBtn('Duplicate', () => {
+    commit();
+    const c = JSON.parse(JSON.stringify(sh));
+    c.id = uid++; c.pos = [sh.pos[0] + 0.9, sh.pos[1], sh.pos[2] + 0.4];
+    S.shapes.push(c); S.sel = c.id;
+    syncAll(); draw();
+  }));
+  acts.appendChild(actionBtn('Centre', () => {
+    commit(); sh.pos = [0, 0, 0]; syncAll(); draw();
+  }));
+  acts.appendChild(actionBtn('Delete', () => {
+    commit();
+    S.shapes.splice(S.shapes.indexOf(sh), 1);
+    S.sel = null; syncAll(); draw();
+  }, 'warn'));
+  ga.appendChild(acts);
+  p.appendChild(ga);
+}
+
+function syncEditValues() { editRows.forEach(r => r.refresh && r.refresh()); }
+function current() { return S.shapes.find(s => s.id === S.sel) || null; }
+
+/* -------- style pane -------- */
+let styleRows = [];
+function buildStylePane() {
+  const p = document.getElementById('pane-style');
+  p.innerHTML = '';
+  styleRows = [];
+
+  const g1 = group('Linework');
+  g1.appendChild(segmented('Line treatment', [
+    { label:'Solid', value:'solid' },
+    { label:'Ghost', value:'ghost' },
+    { label:'X-ray', value:'wire' }
+  ], () => S.style.mode, v => { S.style.mode = v; }));
+  g1.appendChild(slider('Weight', { min:0.4, max:4.5, step:0.1, get:() => S.style.weight, set:v => S.style.weight = v, fmt:v => (+v).toFixed(1) + ' pt' }));
+  g1.appendChild(node('p', 'note', 'Solid hides the back edges. Ghost dashes them in. X-ray keeps every line — the classic see-through build.'));
+  p.appendChild(g1);
+
+  const g2 = group('Shading');
+  g2.appendChild(segmented('Fill', [
+    { label:'Open', value:'open' },
+    { label:'Hatch', value:'hatch' },
+    { label:'Dotwork', value:'dots' },
+    { label:'Black', value:'black' }
+  ], () => S.style.fill, v => { S.style.fill = v; }));
+  g2.appendChild(slider('Tone', { min:0, max:1, step:0.01, get:() => S.style.tone, set:v => S.style.tone = v, fmt:v => Math.round(v * 100) + '%' }));
+  g2.appendChild(slider('Light', { min:0, max:1, step:0.005, get:() => S.style.light, set:v => S.style.light = v, fmt:v => Math.round(v * 360) + '°' }));
+  p.appendChild(g2);
+
+  const g3 = group('View');
+  g3.appendChild(segmented('Projection', [
+    { label:'Isometric', value:'ortho' },
+    { label:'Perspective', value:'persp' }
+  ], () => S.style.proj, v => { S.style.proj = v; }));
+  g3.appendChild(slider('Zoom', {
+    min:0, max:1, step:0.005,
+    get:() => 1 - (S.cam.dist - 3) / 31,
+    set:v => S.cam.dist = 3 + (1 - v) * 31,
+    fmt:v => Math.round(v * 100) + '%'
+  }));
+  g3.appendChild(segmented('Construction grid', [
+    { label:'On', value:true }, { label:'Off', value:false }
+  ], () => S.style.grid, v => { S.style.grid = v; }));
+  p.appendChild(g3);
+
+  styleRows = [...g1.children, ...g2.children, ...g3.children].filter(n => n.refresh);
+}
+
+/* -------- scene pane -------- */
+let sceneRows = [];
+function buildScenePane() {
+  const p = document.getElementById('pane-scene');
+  p.innerHTML = '';
+
+  const g1 = group('Symmetry');
+  const radial = slider('Radial repeat', {
+    min:1, max:12, step:1,
+    get:() => S.sym.radial,
+    set:v => { S.sym.radial = v | 0; },
+    fmt:v => (v | 0) === 1 ? 'off' : `×${v | 0}`
+  });
+  g1.appendChild(radial);
+  const mir = segmented('Mirror', [
+    { label:'Off', value:false }, { label:'On', value:true }
+  ], () => S.sym.mirror, v => { S.sym.mirror = v; });
+  g1.appendChild(mir);
+  g1.appendChild(node('p', 'note', 'Radial repeat spins copies of the whole sheet around the vertical axis — how a mandala build gets its count.'));
+  p.appendChild(g1);
+
+  const g2 = group('Export');
+  const stencil = segmented('Ink', [
+    { label:'Stencil', value:true }, { label:'As shown', value:false }
+  ], () => S.ex.stencil, v => { S.ex.stencil = v; });
+  g2.appendChild(stencil);
+  const acts = node('div', 'acts two');
+  acts.appendChild(actionBtn('PNG ×3', () => exportPNG(), 'solid'));
+  acts.appendChild(actionBtn('SVG', () => exportSVG(), 'solid'));
+  g2.appendChild(acts);
+  g2.appendChild(node('p', 'note', 'Stencil gives black on white at any size — what an artist needs for a transfer. SVG stays vector, so the linework holds at full scale.'));
+  p.appendChild(g2);
+
+  const g3 = group('Sheet');
+  const acts2 = node('div', 'acts two');
+  acts2.appendChild(actionBtn('Reset view', () => {
+    S.cam.yaw = -0.62; S.cam.pitch = 0.48; S.cam.dist = 9.5;
+    syncAll(); draw(); save();
+  }));
+  acts2.appendChild(actionBtn('Clear all', () => {
+    commit(); S.shapes = []; S.sel = null; S.sym = { mirror:false, radial:1 };
+    syncAll(); draw();
+  }, 'warn'));
+  g3.appendChild(acts2);
+  p.appendChild(g3);
+
+  sceneRows = [radial, mir, stencil];
+}
+
+/* ---------------------------------------------------------- export */
+function exportColors() {
+  if (!S.ex.stencil) {
+    const c = themeColors();
+    return { paper:c.paper, ink:c.ink, ghost:c.ghost, hair:c.hair, accent:c.ink };
+  }
+  return { paper:'#FFFFFF', ink:'#000000', ghost:'#9A9A9A', hair:'#D6D6D6', accent:'#000000' };
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function exportPNG(scale) {
+  const k = scale || 3;
+  const w = Math.round(CW * k), h = Math.round(CH * k);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const cc = c.getContext('2d');
+  const { ops } = buildOps({ w, h, lw:k, exportMode:true });
+  paint(cc, ops, exportColors(), w, h);
+  c.toBlob(b => { if (b) { download(b, 'tatgeo-sheet.png'); toast('PNG saved'); } }, 'image/png');
+}
+
+function exportSVG() {
+  const { ops } = buildOps({ w:CW, h:CH, lw:1, exportMode:true });
+  const svg = toSVG(ops, CW, CH, exportColors());
+  download(new Blob([svg], { type:'image/svg+xml' }), 'tatgeo-sheet.svg');
+  toast('SVG saved');
+}
+
+/* ---------------------------------------------------------- chrome sync */
+function syncReadout() {
+  const sh = current();
+  el.readout.classList.toggle('on', !!sh);
+  const txt = el.readout.querySelector('span');
+  txt.textContent = sh ? `${sh.name} · ${S.shapes.indexOf(sh) + 1}/${S.shapes.length}`
+                       : (S.shapes.length ? `${S.shapes.length} forms` : 'Empty sheet');
+}
+function syncEdit() { buildEditPane(); }
+function syncAll() {
+  buildEditPane(); syncReadout();
+  styleRows.forEach(r => r.refresh && r.refresh());
+  sceneRows.forEach(r => r.refresh && r.refresh());
+}
+
+let toastT;
+function toast(msg) {
+  el.hint.textContent = msg;
+  el.hint.classList.add('show');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.hint.classList.remove('show'), 2200);
+}
+
+/* ---------------------------------------------------------- tabs + sheet */
+el.tabs.addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]');
+  if (!b) return;
+  for (const t of el.tabs.querySelectorAll('button')) t.setAttribute('aria-selected', String(t === b));
+  for (const p of document.querySelectorAll('.pane')) p.classList.remove('on');
+  document.getElementById('pane-' + b.dataset.tab).classList.add('on');
+  if (el.sheet.dataset.state === 'peek') el.sheet.dataset.state = 'open';
+  requestAnimationFrame(resize);
+});
+
+el.grip.addEventListener('click', () => {
+  el.sheet.dataset.state = el.sheet.dataset.state === 'open' ? 'peek' : 'open';
+  requestAnimationFrame(resize);
+});
+
+el.undo.addEventListener('click', undo);
+el.quickpng.addEventListener('click', () => exportPNG());
+
+/* ---------------------------------------------------------- boot */
+buildShapesPane();
+buildStylePane();
+buildScenePane();
+
+if (!load()) {
+  S.shapes = PRESETS.monolith();
+  S.sel = null;
+}
+syncAll();
+
+new ResizeObserver(() => resize()).observe(el.stage);
+window.addEventListener('orientationchange', () => setTimeout(resize, 220));
+
+const mq = window.matchMedia('(prefers-color-scheme: dark)');
+const onTheme = () => { buildShapesPane(); draw(); };
+if (mq.addEventListener) mq.addEventListener('change', onTheme);
+else if (mq.addListener) mq.addListener(onTheme);
+new MutationObserver(onTheme).observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
+
+resize();
+setTimeout(() => toast('Drag to orbit · tap a form to select'), 500);
+</script>
