@@ -133,6 +133,7 @@ button{ font:inherit; color:inherit; background:none; border:none; padding:0; cu
   position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
   font-family:var(--mono); font-size:9px; letter-spacing:.18em;
   color:var(--hair); pointer-events:none; text-transform:uppercase;
+  white-space:nowrap;
 }
 
 .hint{
@@ -161,13 +162,13 @@ button{ font:inherit; color:inherit; background:none; border:none; padding:0; cu
   content:""; width:34px; height:3px; border-radius:2px; background:var(--hair);
 }
 .tabs{
-  display:grid; grid-template-columns:repeat(4,1fr);
+  display:grid; grid-template-columns:repeat(5,1fr);
   border-top:1px solid var(--line); border-bottom:1px solid var(--line);
   background:var(--panel);
 }
 .tabs button{
   height:40px;
-  font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  font-family:var(--mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase;
   color:var(--ink-3); border-right:1px solid var(--line);
   position:relative;
 }
@@ -199,6 +200,8 @@ button{ font:inherit; color:inherit; background:none; border:none; padding:0; cu
   display:flex; flex-direction:column; align-items:center; gap:6px;
 }
 .tile:active{ background:var(--accent-soft); border-color:var(--accent); }
+.tile.on{ background:var(--accent-soft); border-color:var(--accent); }
+.tile.on span{ color:var(--ink); }
 .tile canvas{ width:40px; height:40px; display:block; }
 .tile span{
   font-family:var(--mono); font-size:9px; letter-spacing:.1em;
@@ -333,12 +336,14 @@ input[type=range]:active::-moz-range-thumb{ background:var(--accent); border-col
     <nav class="tabs" role="tablist" id="tabs">
       <button role="tab" data-tab="shapes" aria-selected="true">Shapes</button>
       <button role="tab" data-tab="edit" aria-selected="false">Edit</button>
+      <button role="tab" data-tab="pattern" aria-selected="false">Pattern</button>
       <button role="tab" data-tab="style" aria-selected="false">Style</button>
       <button role="tab" data-tab="scene" aria-selected="false">Scene</button>
     </nav>
     <div class="panes">
       <div class="pane on" id="pane-shapes"></div>
       <div class="pane" id="pane-edit"></div>
+      <div class="pane" id="pane-pattern"></div>
       <div class="pane" id="pane-style"></div>
       <div class="pane" id="pane-scene"></div>
     </div>
@@ -552,6 +557,7 @@ const S = {
   cam: { yaw: -0.62, pitch: 0.48, dist: 9.5 },
   style: { mode: 'solid', fill: 'open', weight: 1.7, tone: 0.5, light: 0.85, proj: 'ortho', grid: true },
   sym: { mirror: false, radial: 1 },
+  pat: { kind: null, scale: 34, rings: 4, rot: 0, seed: 1, dens: 0.35, frame: 'hex', frameR: 0.86, layer: 'behind' },
   ex: { stencil: true }
 };
 
@@ -607,7 +613,7 @@ const LS = 'tatgeo.sheet.v1';
 function save() {
   try {
     localStorage.setItem(LS, JSON.stringify({
-      shapes: S.shapes, cam: S.cam, style: S.style, sym: S.sym, sel: S.sel
+      shapes: S.shapes, cam: S.cam, style: S.style, sym: S.sym, pat: S.pat, sel: S.sel
     }));
   } catch (e) { /* private mode — the sheet just won't persist */ }
 }
@@ -621,6 +627,8 @@ function load() {
     Object.assign(S.cam, d.cam || {});
     Object.assign(S.style, d.style || {});
     Object.assign(S.sym, d.sym || {});
+    Object.assign(S.pat, d.pat || {});
+    if (S.pat.kind && !PATTERNS[S.pat.kind]) S.pat.kind = null;
     S.sel = d.sel ?? null;
     uid = Math.max(...S.shapes.map(s => s.id)) + 1;
     return true;
@@ -732,9 +740,13 @@ function buildOps(opt) {
   const mode = S.style.mode;
   const fill = draft ? 'open' : S.style.fill;
   const solidPass = mode !== 'wire';
+  const patOnly = S.pat.kind && S.pat.layer === 'only';
 
-  /* ground construction grid — a drafting reference, never exported */
-  if (S.style.grid && !exportMode) {
+  /* Ground construction grid — a drafting reference, never exported. A
+     visible pattern already gives the eye a ground, so stand the grid down
+     rather than crosshatching the two together. */
+  const patShown = S.pat.kind && S.pat.layer !== 'off';
+  if (S.style.grid && !exportMode && !patShown) {
     for (const r of [1.6, 3.2, 4.8]) {
       const pts = [];
       for (let i = 0; i <= 72; i++) {
@@ -750,6 +762,10 @@ function buildOps(opt) {
       ops.push({ t:'line', p:[p1, p2], c:'hair', w:lw * 0.5 });
     }
   }
+
+  /* the flat panel the solids stand on */
+  for (const o of patternOps(w, h, lw)) ops.push(o);
+  if (patOnly) return { ops, pick };
 
   const insts = instances();
   const faces = [];
@@ -917,6 +933,311 @@ function toSVG(ops, w, h, col) {
   return out.join('\n');
 }
 
+/* =====================================================================
+   Flat pattern work. These are screen-space, not projected — a 2D panel
+   the solids sit on top of. They emit the same ops as the 3D renderer,
+   so they clip, paint and export as stencils through the same path.
+   ===================================================================== */
+const rngFor = seed => {
+  let s = (seed >>> 0) || 1;
+  return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; };
+};
+
+// flat-top hexagon: vertices at 60° steps, so the lattice below tiles cleanly
+function hexPts(cx, cy, R, rot) {
+  const o = [];
+  for (let k = 0; k < 6; k++) { const a = rot + k * Math.PI / 3; o.push([cx + Math.cos(a) * R, cy + Math.sin(a) * R]); }
+  return o;
+}
+
+// axial hex coordinates within `N` rings, rotated as a whole
+function hexLattice(N, R, rot) {
+  const out = [], c = Math.cos(rot), s = Math.sin(rot), rt3 = Math.sqrt(3);
+  for (let q = -N; q <= N; q++) {
+    for (let r = Math.max(-N, -q - N); r <= Math.min(N, -q + N); r++) {
+      const x = R * 1.5 * q, y = R * rt3 * (r + q / 2);
+      out.push([x * c - y * s, x * s + y * c]);
+    }
+  }
+  return out;
+}
+
+function arcSegs(out, c, p1, p2, r) {
+  let a1 = Math.atan2(p1[1] - c[1], p1[0] - c[0]);
+  let a2 = Math.atan2(p2[1] - c[1], p2[0] - c[0]);
+  let d = a2 - a1;
+  while (d > Math.PI) d -= TAU;
+  while (d < -Math.PI) d += TAU;
+  const n = 10;
+  let prev = p1;
+  for (let i = 1; i <= n; i++) {
+    const a = a1 + d * (i / n);
+    const p = [c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r];
+    out.push([prev, p]); prev = p;
+  }
+}
+
+function circleSegs(out, cx, cy, r, n) {
+  let prev = null;
+  for (let i = 0; i <= n; i++) {
+    const a = i / n * TAU, p = [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+    if (prev) out.push([prev, p]);
+    prev = p;
+  }
+}
+
+const PATTERNS = {
+  honeycomb: {
+    label: 'Honeycomb', params: ['scale', 'rings', 'rot', 'dens', 'seed'], densLabel: 'Inner cells',
+    gen(c) {
+      const segs = [], seen = new Set(), rnd = rngFor(c.seed);
+      for (const [x, y] of hexLattice(c.rings, c.R, c.rot)) {
+        const X = x + c.cx, Y = y + c.cy, v = hexPts(X, Y, c.R, c.rot);
+        for (let k = 0; k < 6; k++) {
+          const a = v[k], b = v[(k + 1) % 6];
+          // neighbours share a wall; key on the midpoint so it's stroked once
+          const key = Math.round((a[0] + b[0]) / 2) + ':' + Math.round((a[1] + b[1]) / 2);
+          if (seen.has(key)) continue;
+          seen.add(key); segs.push([a, b]);
+        }
+        if (rnd() < c.dens) {
+          const iv = hexPts(X, Y, c.R * 0.6, c.rot);
+          for (let k = 0; k < 6; k++) segs.push([iv[k], iv[(k + 1) % 6]]);
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  cubes: {
+    label: 'Cubes', params: ['scale', 'rings', 'rot', 'dens', 'seed'], densLabel: 'Solid faces',
+    gen(c) {
+      // rhombille: each hexagon splits into three rhombi and reads as a cube
+      const segs = [], polys = [], seen = new Set(), rnd = rngFor(c.seed);
+      for (const [x, y] of hexLattice(c.rings, c.R, c.rot)) {
+        const X = x + c.cx, Y = y + c.cy, v = hexPts(X, Y, c.R, c.rot);
+        for (let k = 0; k < 6; k++) {
+          const a = v[k], b = v[(k + 1) % 6];
+          const key = Math.round((a[0] + b[0]) / 2) + ':' + Math.round((a[1] + b[1]) / 2);
+          if (seen.has(key)) continue;
+          seen.add(key); segs.push([a, b]);
+        }
+        for (let k = 0; k < 6; k += 2) {
+          segs.push([[X, Y], v[k]]);
+          if (rnd() < c.dens) polys.push([[X, Y], v[k], v[(k + 1) % 6], v[(k + 2) % 6]]);
+        }
+      }
+      return { segs, polys };
+    }
+  },
+
+  triangles: {
+    label: 'Triangle', params: ['scale', 'rings', 'rot'],
+    gen(c) {
+      const segs = [], L = c.R * (c.rings + 2) * 2, sp = c.R * Math.sqrt(3) / 2;
+      for (let f = 0; f < 3; f++) {
+        const a = c.rot + f * Math.PI / 3;
+        const d = [Math.cos(a), Math.sin(a)], n = [-Math.sin(a), Math.cos(a)];
+        const M = Math.ceil(L / sp);
+        for (let k = -M; k <= M; k++) {
+          const px = c.cx + n[0] * k * sp, py = c.cy + n[1] * k * sp;
+          segs.push([[px - d[0] * L, py - d[1] * L], [px + d[0] * L, py + d[1] * L]]);
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  flower: {
+    label: 'Flower', params: ['scale', 'rings', 'rot'],
+    gen(c) {
+      // Flower of Life: equal circles on a triangular lattice of the same pitch
+      const segs = [], R = c.R, N = c.rings, lim = (N + 0.01) * R;
+      const c0 = Math.cos(c.rot), s0 = Math.sin(c.rot), rt3 = Math.sqrt(3);
+      for (let q = -N - 1; q <= N + 1; q++) {
+        for (let r = -N - 1; r <= N + 1; r++) {
+          const x = R * (q + r / 2), y = R * r * rt3 / 2;
+          if (Math.hypot(x, y) > lim) continue;
+          circleSegs(segs, c.cx + x * c0 - y * s0, c.cy + x * s0 + y * c0, R, 48);
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  metatron: {
+    label: 'Metatron', params: ['scale', 'rot'],
+    gen(c) {
+      // thirteen circles, then every centre joined to every other.
+      // The figure is a fixed 13-circle construction, so it takes its size
+      // from the cell slider alone — widened so it fills the frame like the
+      // tiling patterns do at the same setting.
+      const segs = [], d = c.R * 2.2, P = [[c.cx, c.cy]];
+      for (const m of [1, 2]) {
+        for (let k = 0; k < 6; k++) {
+          const a = c.rot + k * Math.PI / 3;
+          P.push([c.cx + Math.cos(a) * d * m, c.cy + Math.sin(a) * d * m]);
+        }
+      }
+      for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) segs.push([P[i], P[j]]);
+      for (const p of P) circleSegs(segs, p[0], p[1], d / 2, 40);
+      return { segs, polys: [] };
+    }
+  },
+
+  star: {
+    label: 'Star', params: ['scale', 'rings', 'rot', 'dens'], densLabel: 'Sharpness',
+    gen(c) {
+      // Nested star polygons on twelve points, each ring circumscribed.
+      // Sharpness picks the chord skip: {12/2} reads as stacked hexagons,
+      // {12/5} as a sharp compass star.
+      const segs = [], N = Math.max(2, c.rings), P = 12;
+      const step = 2 + Math.round(c.dens * 3);
+      for (let i = 1; i <= N; i++) {
+        const r = c.R * i, V = [];
+        for (let k = 0; k < P; k++) {
+          const a = c.rot + k / P * TAU;
+          V.push([c.cx + Math.cos(a) * r, c.cy + Math.sin(a) * r]);
+        }
+        for (let k = 0; k < P; k++) segs.push([V[k], V[(k + step) % P]]);
+        circleSegs(segs, c.cx, c.cy, r, 60);
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  truchet: {
+    label: 'Truchet', params: ['scale', 'rings', 'rot', 'seed'],
+    gen(c) {
+      // pair each cell's six wall midpoints at random; adjacent pairs arc
+      // around their shared corner, the rest run straight across
+      const segs = [], rnd = rngFor(c.seed);
+      for (const [x, y] of hexLattice(c.rings, c.R, c.rot)) {
+        const X = x + c.cx, Y = y + c.cy, v = hexPts(X, Y, c.R, c.rot), mid = [];
+        for (let k = 0; k < 6; k++) mid.push([(v[k][0] + v[(k + 1) % 6][0]) / 2, (v[k][1] + v[(k + 1) % 6][1]) / 2]);
+        const idx = [0, 1, 2, 3, 4, 5];
+        for (let i = 5; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = idx[i]; idx[i] = idx[j]; idx[j] = t; }
+        for (let t = 0; t < 6; t += 2) {
+          const i = idx[t], j = idx[t + 1], diff = (j - i + 6) % 6;
+          if (diff === 1) arcSegs(segs, v[j], mid[i], mid[j], c.R / 2);
+          else if (diff === 5) arcSegs(segs, v[i], mid[i], mid[j], c.R / 2);
+          else segs.push([mid[i], mid[j]]);
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  nested: {
+    label: 'Nested', params: ['scale', 'rings', 'rot', 'dens'], densLabel: 'Twist',
+    gen(c) {
+      const segs = [], N = Math.max(2, c.rings);
+      let prev = null;
+      for (let i = 1; i <= N; i++) {
+        const v = hexPts(c.cx, c.cy, c.R * i, c.rot + i * c.dens * 0.55);
+        for (let k = 0; k < 6; k++) segs.push([v[k], v[(k + 1) % 6]]);
+        if (prev) for (let k = 0; k < 6; k++) segs.push([prev[k], v[k]]);
+        prev = v;
+      }
+      return { segs, polys: [] };
+    }
+  }
+};
+
+/* ------------------------------- clipping ------------------------------- */
+// Both clippers take edges carrying an outward normal, derived from the
+// centroid so the clip polygon's winding never matters.
+function clipEdges(poly) {
+  let cx = 0, cy = 0;
+  for (const p of poly) { cx += p[0]; cy += p[1]; }
+  cx /= poly.length; cy /= poly.length;
+  const E = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    let n = [b[1] - a[1], -(b[0] - a[0])];
+    if (n[0] * (cx - a[0]) + n[1] * (cy - a[1]) > 0) n = [-n[0], -n[1]];
+    E.push({ p: a, n });
+  }
+  return E;
+}
+
+function clipSeg(a, b, E) {                       // Cyrus–Beck
+  let t0 = 0, t1 = 1;
+  const d = [b[0] - a[0], b[1] - a[1]];
+  for (const e of E) {
+    const den = e.n[0] * d[0] + e.n[1] * d[1];
+    const num = e.n[0] * (a[0] - e.p[0]) + e.n[1] * (a[1] - e.p[1]);
+    if (Math.abs(den) < 1e-9) { if (num > 0) return null; continue; }
+    const t = -num / den;
+    if (den < 0) { if (t > t0) t0 = t; }
+    else { if (t < t1) t1 = t; }
+    if (t0 > t1) return null;
+  }
+  return [[a[0] + d[0] * t0, a[1] + d[1] * t0], [a[0] + d[0] * t1, a[1] + d[1] * t1]];
+}
+
+function clipPoly(subject, E) {                   // Sutherland–Hodgman
+  let out = subject;
+  for (const e of E) {
+    const inp = out;
+    if (!inp.length) return [];
+    out = [];
+    for (let i = 0; i < inp.length; i++) {
+      const cur = inp[i], prv = inp[(i + inp.length - 1) % inp.length];
+      const dc = e.n[0] * (cur[0] - e.p[0]) + e.n[1] * (cur[1] - e.p[1]);
+      const dp = e.n[0] * (prv[0] - e.p[0]) + e.n[1] * (prv[1] - e.p[1]);
+      if (dc <= 0) {
+        if (dp > 0) { const t = dp / (dp - dc); out.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]); }
+        out.push(cur);
+      } else if (dp <= 0) {
+        const t = dp / (dp - dc);
+        out.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]);
+      }
+    }
+  }
+  return out;
+}
+
+function framePoly(w, h, lw) {
+  const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 * S.pat.frameR;
+  if (S.pat.frame === 'hex') return hexPts(cx, cy, R, S.pat.rot);
+  if (S.pat.frame === 'circle') {
+    const o = [];
+    for (let k = 0; k < 72; k++) { const a = k / 72 * TAU; o.push([cx + Math.cos(a) * R, cy + Math.sin(a) * R]); }
+    return o;
+  }
+  return [[0, 0], [w, 0], [w, h], [0, h]];
+}
+
+// Patterns are static under camera moves, so cache them and let orbiting
+// redraw from the cached ops instead of regenerating thousands of segments.
+let patCache = { key: null, ops: [] };
+function patternOps(w, h, lw) {
+  const P = S.pat;
+  if (!P.kind || P.layer === 'off') return [];
+  const key = [P.kind, P.scale, P.rings, P.rot, P.seed, P.dens, P.frame, P.frameR, w, h, lw, S.style.weight].join('|');
+  if (patCache.key === key) return patCache.ops;
+
+  const spec = PATTERNS[P.kind];
+  const { segs, polys } = spec.gen({
+    cx: w / 2, cy: h / 2, R: P.scale * lw,
+    rings: P.rings | 0, rot: P.rot, seed: P.seed, dens: P.dens
+  });
+  const poly = framePoly(w, h, lw);
+  const E = clipEdges(poly);
+  const wgt = S.style.weight * lw * 0.78;
+  const ops = [];
+  for (const q of polys) { const cp = clipPoly(q, E); if (cp.length > 2) ops.push({ t:'poly', pts:cp, f:'ink' }); }
+  for (const [a, b] of segs) { const s = clipSeg(a, b, E); if (s) ops.push({ t:'line', p:s, c:'ink', w:wgt }); }
+  if (P.frame !== 'none') {
+    for (let i = 0; i < poly.length; i++) {
+      ops.push({ t:'line', p:[poly[i], poly[(i + 1) % poly.length]], c:'ink', w: wgt * 1.3 });
+    }
+  }
+  patCache = { key, ops };
+  return ops;
+}
+
 /* ---------------------------------------------------------- canvas host */
 const el = {
   stage: document.getElementById('stage'),
@@ -959,8 +1280,9 @@ function draw() {
     const { ops, pick } = buildOps({ w:CW, h:CH, lw:1, draft:interacting });
     lastPick = pick;
     paint(ctx, ops, themeColors(), CW, CH);
+    const pat = S.pat.kind && S.pat.layer !== 'off' ? ' · ' + PATTERNS[S.pat.kind].label : '';
     el.stamp.textContent = `Sheet 001 · ${S.shapes.length} form${S.shapes.length === 1 ? '' : 's'}` +
-      (S.sym.radial > 1 ? ` · ×${S.sym.radial}` : '') + (S.sym.mirror ? ' · mirror' : '');
+      (S.sym.radial > 1 ? ` · ×${S.sym.radial}` : '') + (S.sym.mirror ? ' · mirror' : '') + pat;
   });
 }
 
@@ -1409,6 +1731,132 @@ function buildScenePane() {
   sceneRows = [radial, mir, stencil];
 }
 
+/* -------- pattern pane -------- */
+const PAT_ICON = {
+  honeycomb:{ R:7.5, rings:2 }, cubes:{ R:9, rings:1 },  triangles:{ R:11, rings:1 },
+  flower:{ R:6.5, rings:1 },    metatron:{ R:3.4, rings:1 }, star:{ R:5.5, rings:3 },
+  truchet:{ R:9, rings:1 },     nested:{ R:5, rings:3 }
+};
+
+function patternIcon(kind) {
+  const c = document.createElement('canvas');
+  const d = 40, dpr = Math.min(window.devicePixelRatio || 1, 3);
+  c.width = d * dpr; c.height = d * dpr;
+  const cc = c.getContext('2d');
+  cc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cfg = PAT_ICON[kind];
+  const { segs, polys } = PATTERNS[kind].gen({
+    cx:d/2, cy:d/2, R:cfg.R, rings:cfg.rings, rot:0, seed:S.pat.seed, dens:0.35
+  });
+  const ring = [];
+  for (let k = 0; k < 40; k++) { const a = k / 40 * TAU; ring.push([d/2 + Math.cos(a)*18, d/2 + Math.sin(a)*18]); }
+  const E = clipEdges(ring);
+  const col = themeColors();
+  cc.lineCap = 'round';
+  cc.fillStyle = col.ink;
+  for (const q of polys) {
+    const cp = clipPoly(q, E);
+    if (cp.length < 3) continue;
+    cc.beginPath();
+    cp.forEach((p, i) => i ? cc.lineTo(p[0], p[1]) : cc.moveTo(p[0], p[1]));
+    cc.closePath(); cc.fill();
+  }
+  cc.strokeStyle = col.ink; cc.lineWidth = 0.85;
+  cc.beginPath();
+  for (const [a, b] of segs) {
+    const s = clipSeg(a, b, E);
+    if (!s) continue;
+    cc.moveTo(s[0][0], s[0][1]); cc.lineTo(s[1][0], s[1][1]);
+  }
+  cc.stroke();
+  return c;
+}
+
+let patRows = [];
+function buildPatternPane() {
+  const p = document.getElementById('pane-pattern');
+  p.innerHTML = ''; patRows = [];
+
+  const g0 = group('Flat pattern');
+  const tiles = node('div', 'tiles');
+  for (const k of Object.keys(PATTERNS)) {
+    const b = node('button', 'tile' + (S.pat.kind === k ? ' on' : ''));
+    b.appendChild(patternIcon(k));
+    b.appendChild(node('span', null, PATTERNS[k].label));
+    b.addEventListener('click', () => {
+      S.pat.kind = k;
+      if (S.pat.layer === 'off') S.pat.layer = 'behind';
+      patCache.key = null;
+      buildPatternPane(); draw(); save(); haptic();
+    });
+    tiles.appendChild(b);
+  }
+  g0.appendChild(tiles);
+  p.appendChild(g0);
+
+  if (!S.pat.kind) {
+    const e = node('div', 'empty');
+    e.innerHTML = 'No pattern<br>Pick one to lay it under your forms';
+    p.appendChild(e);
+    return;
+  }
+
+  const spec = PATTERNS[S.pat.kind];
+  const bump = () => { patCache.key = null; };
+
+  const g1 = group(spec.label);
+  const add = (row) => { g1.appendChild(row); patRows.push(row); };
+  if (spec.params.includes('scale'))
+    add(slider('Cell size', { min:12, max:90, step:1,
+      get:() => S.pat.scale, set:v => { S.pat.scale = v; bump(); }, fmt:v => Math.round(v) + ' px' }));
+  if (spec.params.includes('rings'))
+    add(slider('Extent', { min:1, max:9, step:1,
+      get:() => S.pat.rings, set:v => { S.pat.rings = v | 0; bump(); }, fmt:v => String(v | 0) }));
+  if (spec.params.includes('rot'))
+    add(slider('Rotation', { min:-180, max:180, step:1,
+      get:() => Math.round(S.pat.rot * 180 / Math.PI),
+      set:v => { S.pat.rot = v * Math.PI / 180; bump(); }, fmt:v => Math.round(v) + '°' }));
+  if (spec.params.includes('dens'))
+    add(slider(spec.densLabel || 'Variation', { min:0, max:1, step:0.01,
+      get:() => S.pat.dens, set:v => { S.pat.dens = v; bump(); }, fmt:v => Math.round(v * 100) + '%' }));
+  if (spec.params.includes('seed')) {
+    const acts = node('div', 'acts two');
+    acts.appendChild(actionBtn('Reroll', () => {
+      S.pat.seed = (S.pat.seed * 1664525 + 1013904223) >>> 0 || 1;
+      bump(); buildPatternPane(); draw(); save(); haptic();
+    }));
+    acts.appendChild(actionBtn('Clear', () => {
+      S.pat.kind = null; bump(); buildPatternPane(); draw(); save();
+    }, 'warn'));
+    g1.appendChild(acts);
+  } else {
+    const acts = node('div', 'acts two');
+    acts.appendChild(actionBtn('Clear', () => {
+      S.pat.kind = null; bump(); buildPatternPane(); draw(); save();
+    }, 'warn'));
+    g1.appendChild(acts);
+  }
+  p.appendChild(g1);
+
+  const g2 = group('Frame');
+  const fr = segmented('Crop to', [
+    { label:'Hexagon', value:'hex' }, { label:'Circle', value:'circle' }, { label:'Full bleed', value:'none' }
+  ], () => S.pat.frame, v => { S.pat.frame = v; bump(); });
+  g2.appendChild(fr); patRows.push(fr);
+  const fs = slider('Frame size', { min:0.35, max:1, step:0.01,
+    get:() => S.pat.frameR, set:v => { S.pat.frameR = v; bump(); }, fmt:v => Math.round(v * 100) + '%' });
+  g2.appendChild(fs); patRows.push(fs);
+  p.appendChild(g2);
+
+  const g3 = group('Layer');
+  const ly = segmented('Show', [
+    { label:'Behind forms', value:'behind' }, { label:'Pattern only', value:'only' }, { label:'Off', value:'off' }
+  ], () => S.pat.layer, v => { S.pat.layer = v; bump(); });
+  g3.appendChild(ly); patRows.push(ly);
+  g3.appendChild(node('p', 'note', 'The pattern is a flat panel — it stays put while you orbit the forms above it, and it exports with them.'));
+  p.appendChild(g3);
+}
+
 /* ---------------------------------------------------------- export */
 function exportColors() {
   if (!S.ex.stencil) {
@@ -1457,6 +1905,7 @@ function syncAll() {
   buildEditPane(); syncReadout();
   styleRows.forEach(r => r.refresh && r.refresh());
   sceneRows.forEach(r => r.refresh && r.refresh());
+  patRows.forEach(r => r.refresh && r.refresh());
 }
 
 let toastT;
@@ -1490,6 +1939,7 @@ el.quickpng.addEventListener('click', () => exportPNG());
 buildShapesPane();
 buildStylePane();
 buildScenePane();
+buildPatternPane();
 
 if (!load()) {
   S.shapes = PRESETS.monolith();
@@ -1501,7 +1951,7 @@ new ResizeObserver(() => resize()).observe(el.stage);
 window.addEventListener('orientationchange', () => setTimeout(resize, 220));
 
 const mq = window.matchMedia('(prefers-color-scheme: dark)');
-const onTheme = () => { buildShapesPane(); draw(); };
+const onTheme = () => { buildShapesPane(); buildPatternPane(); draw(); };
 if (mq.addEventListener) mq.addEventListener('change', onTheme);
 else if (mq.addListener) mq.addListener(onTheme);
 new MutationObserver(onTheme).observe(document.documentElement, { attributes:true, attributeFilter:['data-theme'] });
