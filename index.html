@@ -962,6 +962,25 @@ function hexLattice(N, R, rot) {
   return out;
 }
 
+// triangular lattice of pitch R — circle centres for Flower, Scales
+function triLattice(N, R, rot) {
+  const out = [], c = Math.cos(rot), s = Math.sin(rot), rt3 = Math.sqrt(3), lim = (N + 0.01) * R;
+  for (let q = -N - 1; q <= N + 1; q++) {
+    for (let r = -N - 1; r <= N + 1; r++) {
+      const x = R * (q + r / 2), y = R * r * rt3 / 2;
+      if (Math.hypot(x, y) > lim) continue;
+      out.push([x * c - y * s, x * s + y * c]);
+    }
+  }
+  return out;
+}
+
+const lerpP = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+
+// the six axial steps, indexed to match hexagon edges: edge k has its outward
+// normal at 30 + 60k degrees, and the neighbour across it is DIRS[k]
+const DIRS = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+
 function arcSegs(out, c, p1, p2, r) {
   let a1 = Math.atan2(p1[1] - c[1], p1[0] - c[0]);
   let a2 = Math.atan2(p2[1] - c[1], p2[0] - c[0]);
@@ -1052,14 +1071,9 @@ const PATTERNS = {
     label: 'Flower', params: ['scale', 'rings', 'rot'],
     gen(c) {
       // Flower of Life: equal circles on a triangular lattice of the same pitch
-      const segs = [], R = c.R, N = c.rings, lim = (N + 0.01) * R;
-      const c0 = Math.cos(c.rot), s0 = Math.sin(c.rot), rt3 = Math.sqrt(3);
-      for (let q = -N - 1; q <= N + 1; q++) {
-        for (let r = -N - 1; r <= N + 1; r++) {
-          const x = R * (q + r / 2), y = R * r * rt3 / 2;
-          if (Math.hypot(x, y) > lim) continue;
-          circleSegs(segs, c.cx + x * c0 - y * s0, c.cy + x * s0 + y * c0, R, 48);
-        }
+      const segs = [];
+      for (const [x, y] of triLattice(c.rings, c.R, c.rot)) {
+        circleSegs(segs, c.cx + x, c.cy + y, c.R, 48);
       }
       return { segs, polys: [] };
     }
@@ -1123,6 +1137,289 @@ const PATTERNS = {
           else if (diff === 5) arcSegs(segs, v[i], mid[i], mid[j], c.R / 2);
           else segs.push([mid[i], mid[j]]);
         }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  weave: {
+    label: 'Weave', params: ['scale', 'rings', 'rot', 'dens'], densLabel: 'Band width',
+    gen(c) {
+      // Triaxial weave. Three band families; each passes over the next and
+      // under the one after, so the over/under cycles consistently. A band
+      // edge is drawn minus the spans where it runs beneath another band.
+      // Band width has to stay well under the spacing: at much past a third,
+      // a band's two edges sit as far apart as the visible runs are long and
+      // the ribbon stops reading as one thing.
+      const segs = [], L = c.R * (c.rings + 2) * 2, sp = c.R * 1.4;
+      const hw = sp * (0.1 + c.dens * 0.14);
+      const fam = [];
+      for (let f = 0; f < 3; f++) {
+        const a = c.rot + f * Math.PI / 3;
+        fam.push({ d: [Math.cos(a), Math.sin(a)], n: [-Math.sin(a), Math.cos(a)] });
+      }
+      const M = Math.ceil(L / sp);
+      for (let f = 0; f < 3; f++) {
+        const F = fam[f], G = fam[(f + 2) % 3];
+        for (let k = -M; k <= M; k++) {
+          for (const side of [-1, 1]) {
+            const off = k * sp + side * hw;
+            const px = c.cx + F.n[0] * off, py = c.cy + F.n[1] * off;
+            const a = [px - F.d[0] * L, py - F.d[1] * L];
+            const b = [px + F.d[0] * L, py + F.d[1] * L];
+            const den = G.n[0] * (b[0] - a[0]) + G.n[1] * (b[1] - a[1]);
+            const cuts = [];
+            if (Math.abs(den) > 1e-9) {
+              for (let m = -M; m <= M; m++) {
+                const qx = c.cx + G.n[0] * m * sp, qy = c.cy + G.n[1] * m * sp;
+                const base = G.n[0] * (a[0] - qx) + G.n[1] * (a[1] - qy);
+                let t1 = (-hw - base) / den, t2 = (hw - base) / den;
+                if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+                if (t2 < 0 || t1 > 1) continue;
+                cuts.push([Math.max(0, t1), Math.min(1, t2)]);
+              }
+            }
+            cuts.sort((x, y) => x[0] - y[0]);
+            let t = 0;
+            for (const [c1, c2] of cuts) {
+              if (c1 > t) segs.push([lerpP(a, b, t), lerpP(a, b, c1)]);
+              if (c2 > t) t = c2;
+            }
+            if (t < 1) segs.push([lerpP(a, b, t), lerpP(a, b, 1)]);
+          }
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  maze: {
+    label: 'Maze', params: ['scale', 'rings', 'rot', 'seed'],
+    gen(c) {
+      // randomised depth-first carve over the hex cells, then every wall
+      // that was never opened gets drawn
+      const N = Math.max(1, c.rings), rnd = rngFor(c.seed), key = (q, r) => q + ',' + r;
+      const cells = new Set();
+      for (let q = -N; q <= N; q++) {
+        for (let r = Math.max(-N, -q - N); r <= Math.min(N, -q + N); r++) cells.add(key(q, r));
+      }
+      const seen = new Set([key(0, 0)]), open = new Set(), stack = [[0, 0]];
+      while (stack.length) {
+        const [q, r] = stack[stack.length - 1], opts = [];
+        for (let d = 0; d < 6; d++) {
+          const nk = key(q + DIRS[d][0], r + DIRS[d][1]);
+          if (cells.has(nk) && !seen.has(nk)) opts.push(d);
+        }
+        if (!opts.length) { stack.pop(); continue; }
+        const d = opts[Math.floor(rnd() * opts.length)];
+        const nq = q + DIRS[d][0], nr = r + DIRS[d][1];
+        open.add(key(q, r) + '|' + d);
+        open.add(key(nq, nr) + '|' + ((d + 3) % 6));
+        seen.add(key(nq, nr));
+        stack.push([nq, nr]);
+      }
+      const segs = [], drawn = new Set(), rt3 = Math.sqrt(3);
+      const cs = Math.cos(c.rot), sn = Math.sin(c.rot);
+      for (let q = -N; q <= N; q++) {
+        for (let r = Math.max(-N, -q - N); r <= Math.min(N, -q + N); r++) {
+          const lx = c.R * 1.5 * q, ly = c.R * rt3 * (r + q / 2);
+          const X = c.cx + lx * cs - ly * sn, Y = c.cy + lx * sn + ly * cs;
+          const v = hexPts(X, Y, c.R, c.rot);
+          for (let d = 0; d < 6; d++) {
+            if (open.has(key(q, r) + '|' + d)) continue;
+            const a = v[d], b = v[(d + 1) % 6];
+            const mk = Math.round((a[0] + b[0]) / 2) + ':' + Math.round((a[1] + b[1]) / 2);
+            if (drawn.has(mk)) continue;
+            drawn.add(mk); segs.push([a, b]);
+          }
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  fracture: {
+    label: 'Fracture', params: ['scale', 'rings', 'rot', 'dens', 'seed'], densLabel: 'Distortion',
+    gen(c) {
+      // honeycomb with every corner pushed off true. Shared corners must move
+      // together or the cells tear apart, so the offset is memoised on the
+      // corner's own position rather than drawn per cell.
+      const segs = [], seen = new Set(), moved = new Map(), amt = c.dens * c.R * 0.42;
+      const jit = p => {
+        const k = Math.round(p[0] * 2) + ':' + Math.round(p[1] * 2);
+        let q = moved.get(k);
+        if (!q) {
+          const h1 = Math.sin(p[0] * 127.1 + p[1] * 311.7 + c.seed) * 43758.5453;
+          const h2 = Math.sin(p[0] * 269.5 + p[1] * 183.3 + c.seed) * 43758.5453;
+          q = [p[0] + ((h1 - Math.floor(h1)) - 0.5) * amt * 2,
+               p[1] + ((h2 - Math.floor(h2)) - 0.5) * amt * 2];
+          moved.set(k, q);
+        }
+        return q;
+      };
+      for (const [x, y] of hexLattice(c.rings, c.R, c.rot)) {
+        const v = hexPts(x + c.cx, y + c.cy, c.R, c.rot).map(jit);
+        for (let k = 0; k < 6; k++) {
+          const a = v[k], b = v[(k + 1) % 6];
+          const mk = Math.round((a[0] + b[0]) / 2) + ':' + Math.round((a[1] + b[1]) / 2);
+          if (seen.has(mk)) continue;
+          seen.add(mk); segs.push([a, b]);
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  scales: {
+    label: 'Scales', params: ['scale', 'rings', 'rot', 'dens'], densLabel: 'Sweep',
+    gen(c) {
+      // arcs cover less of each cell than Flower's full circles, so reach
+      // wider than the nominal extent or the frame corners come up bare
+      const segs = [], span = Math.PI * (0.55 + c.dens * 0.75), n = 20;
+      for (const [x, y] of triLattice(c.rings + 2, c.R, c.rot)) {
+        const X = c.cx + x, Y = c.cy + y;
+        const a0 = c.rot + Math.PI / 2 - span / 2, a1 = c.rot + Math.PI / 2 + span / 2;
+        let prev = null;
+        for (let i = 0; i <= n; i++) {
+          const a = a0 + (a1 - a0) * i / n;
+          const p = [X + Math.cos(a) * c.R, Y + Math.sin(a) * c.R];
+          if (prev) segs.push([prev, p]);
+          prev = p;
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  halftone: {
+    label: 'Halftone', params: ['scale', 'rings', 'rot', 'dens'], densLabel: 'Falloff',
+    gen(c) {
+      // solid cells shrinking with radius — a dotwork gradient in hex form
+      const polys = [], maxD = c.R * Math.max(1, c.rings) * 1.7;
+      for (const [x, y] of hexLattice(c.rings, c.R, c.rot)) {
+        const f = 1 - Math.pow(Math.min(1, Math.hypot(x, y) / maxD), 1 + c.dens * 3);
+        if (f <= 0.04) continue;
+        polys.push(hexPts(x + c.cx, y + c.cy, c.R * 0.9 * f, c.rot));
+      }
+      return { segs: [], polys };
+    }
+  },
+
+  kagome: {
+    label: 'Kagome', params: ['scale', 'rings', 'rot'],
+    gen(c) {
+      // Trihexagonal tiling: join each cell's wall midpoints into a hexagon.
+      // Neighbours share those midpoints, so the gaps left around the original
+      // corners close up as triangles and the lattice comes out interlocked.
+      const segs = [], seen = new Set();
+      for (const [x, y] of hexLattice(c.rings, c.R, c.rot)) {
+        const v = hexPts(x + c.cx, y + c.cy, c.R, c.rot), mid = [];
+        for (let k = 0; k < 6; k++) {
+          mid.push([(v[k][0] + v[(k + 1) % 6][0]) / 2, (v[k][1] + v[(k + 1) % 6][1]) / 2]);
+        }
+        for (let k = 0; k < 6; k++) {
+          const a = mid[k], b = mid[(k + 1) % 6];
+          const mk = Math.round((a[0] + b[0]) / 2) + ':' + Math.round((a[1] + b[1]) / 2);
+          if (seen.has(mk)) continue;
+          seen.add(mk); segs.push([a, b]);
+        }
+      }
+      return { segs, polys: [] };
+    }
+  },
+
+  spiral: {
+    label: 'Spiral', params: ['scale', 'rings', 'rot', 'dens'], densLabel: 'Growth',
+    gen(c) {
+      const segs = [], turns = Math.max(2, c.rings), steps = turns * 6;
+      const growth = 0.3 + c.dens * 1.1, pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const a = c.rot + i * TAU / 6, r = c.R * (0.3 + i * growth / 3.2);
+        pts.push([c.cx + Math.cos(a) * r, c.cy + Math.sin(a) * r]);
+      }
+      for (let i = 0; i + 1 < pts.length; i++) segs.push([pts[i], pts[i + 1]]);
+      for (let i = 0; i + 6 < pts.length; i++) segs.push([pts[i], pts[i + 6]]);
+      return { segs, polys: [] };
+    }
+  },
+
+  sierpinski: {
+    label: 'Sierpinski', params: ['scale', 'rings', 'rot'],
+    gen(c) {
+      const segs = [], depth = Math.min(6, Math.max(1, c.rings)), R = c.R * 3.2;
+      const V = [];
+      for (let k = 0; k < 3; k++) {
+        const a = c.rot - Math.PI / 2 + k * TAU / 3;
+        V.push([c.cx + Math.cos(a) * R, c.cy + Math.sin(a) * R]);
+      }
+      const mid = (x, y) => [(x[0] + y[0]) / 2, (x[1] + y[1]) / 2];
+      (function rec(p1, p2, p3, d) {
+        if (!d) { segs.push([p1, p2], [p2, p3], [p3, p1]); return; }
+        const a = mid(p1, p2), b = mid(p2, p3), e = mid(p3, p1);
+        rec(p1, a, e, d - 1); rec(a, p2, b, d - 1); rec(e, b, p3, d - 1);
+      })(V[0], V[1], V[2], depth);
+      return { segs, polys: [] };
+    }
+  },
+
+  snowflake: {
+    label: 'Snowflake', params: ['scale', 'rings', 'rot'],
+    gen(c) {
+      // Koch construction on each side of a hexagon
+      const depth = Math.min(4, Math.max(1, c.rings)), R = c.R * 3.2;
+      let pts = [];
+      for (let k = 0; k < 6; k++) {
+        const a = c.rot + k * TAU / 6;
+        pts.push([c.cx + Math.cos(a) * R, c.cy + Math.sin(a) * R]);
+      }
+      for (let d = 0; d < depth; d++) {
+        const out = [];
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i], b = pts[(i + 1) % pts.length];
+          const dx = (b[0] - a[0]) / 3, dy = (b[1] - a[1]) / 3, len = Math.hypot(dx, dy);
+          const p1 = [a[0] + dx, a[1] + dy], p2 = [a[0] + 2 * dx, a[1] + 2 * dy];
+          const ang = Math.atan2(dy, dx) - Math.PI / 3;
+          out.push(a, p1, [p1[0] + Math.cos(ang) * len, p1[1] + Math.sin(ang) * len], p2);
+        }
+        pts = out;
+      }
+      const segs = [];
+      for (let i = 0; i < pts.length; i++) segs.push([pts[i], pts[(i + 1) % pts.length]]);
+      return { segs, polys: [] };
+    }
+  },
+
+  gosper: {
+    label: 'Gosper', params: ['scale', 'rings', 'rot'],
+    gen(c) {
+      // flowsnake L-system, turned 60° at a time, then fitted to the frame
+      const depth = Math.min(4, Math.max(1, c.rings));
+      let s = 'A';
+      for (let i = 0; i < depth; i++) {
+        let o = '';
+        for (const ch of s) {
+          o += ch === 'A' ? 'A-B--B+A++AA+B-' : ch === 'B' ? '+A-BB--B-A++A+B' : ch;
+        }
+        s = o;
+      }
+      let a = c.rot, x = 0, y = 0;
+      const pts = [[0, 0]];
+      for (const ch of s) {
+        if (ch === 'A' || ch === 'B') { x += Math.cos(a); y += Math.sin(a); pts.push([x, y]); }
+        else if (ch === '+') a += Math.PI / 3;
+        else if (ch === '-') a -= Math.PI / 3;
+      }
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of pts) {
+        if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+        if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+      }
+      const k = c.R * 6 / Math.max(x1 - x0, y1 - y0, 1e-6);
+      const ox = c.cx - (x0 + x1) / 2 * k, oy = c.cy - (y0 + y1) / 2 * k;
+      const segs = [];
+      for (let i = 0; i + 1 < pts.length; i++) {
+        segs.push([[pts[i][0] * k + ox, pts[i][1] * k + oy],
+                   [pts[i + 1][0] * k + ox, pts[i + 1][1] * k + oy]]);
       }
       return { segs, polys: [] };
     }
@@ -1732,10 +2029,21 @@ function buildScenePane() {
 }
 
 /* -------- pattern pane -------- */
+// tiles run tilings, then generative, then radial, then fractal
+const PAT_ORDER = [
+  'honeycomb', 'cubes', 'triangles', 'kagome', 'weave', 'scales',
+  'truchet', 'maze', 'fracture', 'halftone',
+  'flower', 'metatron', 'star', 'nested', 'spiral',
+  'sierpinski', 'snowflake', 'gosper'
+];
+
 const PAT_ICON = {
-  honeycomb:{ R:7.5, rings:2 }, cubes:{ R:9, rings:1 },  triangles:{ R:11, rings:1 },
-  flower:{ R:6.5, rings:1 },    metatron:{ R:3.4, rings:1 }, star:{ R:5.5, rings:3 },
-  truchet:{ R:9, rings:1 },     nested:{ R:5, rings:3 }
+  honeycomb:{ R:7.5, rings:2 }, cubes:{ R:9, rings:1 },   triangles:{ R:11, rings:1 },
+  weave:{ R:8, rings:1 },       scales:{ R:6, rings:1 },  kagome:{ R:9, rings:1 },
+  truchet:{ R:9, rings:1 },     maze:{ R:6, rings:1 },    fracture:{ R:7, rings:1 },
+  halftone:{ R:5, rings:2 },    flower:{ R:6.5, rings:1 },metatron:{ R:3.4, rings:1 },
+  star:{ R:5.5, rings:3 },      nested:{ R:5, rings:3 },  spiral:{ R:2.6, rings:3 },
+  sierpinski:{ R:5, rings:3 },  snowflake:{ R:5.5, rings:2 }, gosper:{ R:2.6, rings:2 }
 };
 
 function patternIcon(kind) {
@@ -1779,7 +2087,7 @@ function buildPatternPane() {
 
   const g0 = group('Flat pattern');
   const tiles = node('div', 'tiles');
-  for (const k of Object.keys(PATTERNS)) {
+  for (const k of PAT_ORDER) {
     const b = node('button', 'tile' + (S.pat.kind === k ? ' on' : ''));
     b.appendChild(patternIcon(k));
     b.appendChild(node('span', null, PATTERNS[k].label));
